@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SecureGallery Desktop</title>
+<style>
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a1a;
+    --surface2: #242424;
+    --border: #2e2e2e;
+    --primary: #7c9ef8;
+    --primary-dim: #3a4a7a;
+    --text: #e8e8e8;
+    --text-dim: #888;
+    --error: #f87c7c;
+    --success: #7cf8a0;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; min-height: 100vh; }
+
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 18px; font-weight: 600; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex-shrink: 0; }
+
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 0; min-height: calc(100vh - 57px); }
+
+  .sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; gap: 20px; }
+  .main { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+  .card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+  .card-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-dim); margin-bottom: 12px; }
+
+  .connect-box { background: var(--primary-dim); border: 1px solid var(--primary); border-radius: var(--radius); padding: 14px 16px; }
+  .connect-box .label { font-size: 11px; color: var(--primary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 6px; }
+  .connect-box .ip { font-family: monospace; font-size: 20px; font-weight: 700; color: #fff; letter-spacing: 0.02em; }
+  .connect-box .hint { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+  #qrBox { margin-top: 12px; display: flex; justify-content: center; }
+  #qrBox canvas, #qrBox img { border-radius: 6px; border: 3px solid var(--primary); }
+
+  .input-row { display: flex; gap: 8px; }
+  input[type="text"], input[type="checkbox"] { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 14px; outline: none; transition: border-color 0.15s; }
+  input[type="text"] { padding: 8px 12px; flex: 1; min-width: 0; }
+  input[type="text"]:focus { border-color: var(--primary); }
+  input[type="text"]::placeholder { color: var(--text-dim); }
+
+  .btn { background: var(--primary); color: #0a0a18; border: none; border-radius: 6px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: opacity 0.15s; }
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: default; }
+  .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--text-dim); }
+  .btn-ghost:hover { border-color: var(--error); color: var(--error); opacity: 1; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  .folder-list { display: flex; flex-direction: column; gap: 6px; }
+  .folder-item { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; display: flex; align-items: flex-start; gap: 8px; }
+  .folder-path { flex: 1; font-family: monospace; font-size: 12px; word-break: break-all; color: var(--text); }
+  .folder-meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  .opts-row { display: flex; gap: 16px; margin-top: 8px; }
+  .opt { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-dim); cursor: pointer; user-select: none; }
+  .opt input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--primary); }
+
+  .stats-row { display: flex; gap: 12px; }
+  .stat { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; flex: 1; text-align: center; }
+  .stat .num { font-size: 26px; font-weight: 700; color: var(--primary); }
+  .stat .lbl { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  .filter-row { display: flex; gap: 8px; align-items: center; }
+  .filter-btn { background: var(--surface2); border: 1px solid var(--border); color: var(--text-dim); border-radius: 20px; padding: 4px 14px; font-size: 12px; cursor: pointer; transition: all 0.15s; }
+  .filter-btn.active { background: var(--primary-dim); border-color: var(--primary); color: var(--primary); }
+
+  .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .file-card { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; cursor: default; transition: border-color 0.15s; }
+  .file-card:hover { border-color: var(--primary); }
+  .file-thumb { width: 100%; aspect-ratio: 1; object-fit: cover; background: var(--bg); display: block; }
+  .file-thumb-placeholder { width: 100%; aspect-ratio: 1; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 32px; }
+  .file-info { padding: 8px; }
+  .file-name { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+
+  .file-list { display: flex; flex-direction: column; gap: 6px; }
+  .file-list-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; display: flex; align-items: center; gap: 12px; }
+  .file-list-item:hover { border-color: var(--border); }
+  .file-list-item:hover .delete-btn { opacity: 1; }
+  .delete-btn { opacity: 0; transition: opacity 0.15s, color 0.15s; background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px 6px; border-radius: 4px; font-size: 14px; flex-shrink: 0; }
+  .delete-btn:hover { color: var(--error); }
+  .file-icon { font-size: 20px; flex-shrink: 0; }
+  .file-list-name { flex: 1; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-list-size { font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
+
+  .empty { color: var(--text-dim); font-size: 13px; text-align: center; padding: 32px 0; }
+  .msg { font-size: 12px; padding: 4px 0; }
+  .msg.error { color: var(--error); }
+  .msg.success { color: var(--success); }
+
+  .toolbar { display: flex; align-items: center; gap: 10px; }
+  .toolbar .spacer { flex: 1; }
+
+  @media (max-width: 700px) {
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { border-right: none; border-bottom: 1px solid var(--border); }
+  }
+
+  /* Drop overlay */
+  #dropOverlay {
+    display: none;
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(0,0,0,0.75);
+    border: 3px dashed var(--primary);
+    align-items: center; justify-content: center;
+    flex-direction: column; gap: 12px;
+    pointer-events: none;
+  }
+  #dropOverlay.visible { display: flex; }
+  #dropOverlay .drop-icon { font-size: 56px; }
+  #dropOverlay .drop-label { font-size: 22px; font-weight: 600; color: var(--primary); }
+  #dropOverlay .drop-sub { font-size: 14px; color: var(--text-dim); }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 20px; font-size: 13px;
+    opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap;
+    z-index: 2000;
+  }
+  #toast.show { opacity: 1; }
+  #toast.ok { border-color: var(--success); color: var(--success); }
+  #toast.err { border-color: var(--error); color: var(--error); }
+
+  /* Upload progress */
+  #uploadProgress {
+    display: none; align-items: center; gap: 8px;
+    font-size: 12px; color: var(--text-dim);
+  }
+  #uploadProgress.visible { display: flex; }
+  .spinner {
+    width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--primary); border-radius: 50%;
+    animation: spin 0.7s linear infinite; flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+
+<!-- Drop overlay -->
+<div id="dropOverlay">
+  <div class="drop-icon">📂</div>
+  <div class="drop-label">Drop files to upload</div>
+  <div class="drop-sub">They'll be available in the app instantly</div>
+</div>
+
+<!-- Hidden file input -->
+<input type="file" id="fileInput" multiple accept="image/*,video/*" style="display:none" onchange="handleFileInputChange(this)">
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<header>
+  <div class="status-dot" id="statusDot"></div>
+  <h1>SecureGallery Desktop</h1>
+  <span style="margin-left:auto;font-size:12px;color:var(--text-dim)" id="headerIp"></span>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+
+    <div class="connect-box">
+      <div class="label">Connect from phone</div>
+      <div class="ip" id="serverIp">loading...</div>
+      <div class="hint">Scan the QR code or type the address in the app</div>
+      <div id="qrBox"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Add Folder</div>
+      <div class="input-row">
+        <input type="text" id="folderInput" placeholder="/Users/me/Pictures" />
+        <button class="btn" id="addFolderBtn" onclick="addFolder()">Add</button>
+      </div>
+      <div class="opts-row">
+        <label class="opt"><input type="checkbox" id="optRecursive" checked> Subfolders</label>
+        <label class="opt"><input type="checkbox" id="optMediaOnly" checked> Media only</label>
+      </div>
+      <div class="msg" id="folderMsg"></div>
+    </div>
+
+    <div class="card" style="flex:1;min-height:0;overflow-y:auto">
+      <div class="card-title" style="display:flex;justify-content:space-between">
+        <span>Shared Folders</span>
+        <span id="folderCount" style="font-size:11px"></span>
+      </div>
+      <div class="folder-list" id="folderList">
+        <div class="empty">No folders added yet</div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+
+    <div class="stats-row">
+      <div class="stat"><div class="num" id="statFiles">—</div><div class="lbl">Files</div></div>
+      <div class="stat"><div class="num" id="statImages">—</div><div class="lbl">Images</div></div>
+      <div class="stat"><div class="num" id="statVideos">—</div><div class="lbl">Videos</div></div>
+    </div>
+
+    <div class="card" style="flex:1">
+      <div class="toolbar" style="margin-bottom:14px">
+        <div class="card-title" style="margin-bottom:0">Files</div>
+        <div class="filter-row" style="margin-left:12px">
+          <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+          <button class="filter-btn" data-filter="image" onclick="setFilter('image', this)">Images</button>
+          <button class="filter-btn" data-filter="video" onclick="setFilter('video', this)">Videos</button>
+        </div>
+        <div class="spacer"></div>
+        <div id="uploadProgress"><div class="spinner"></div><span id="uploadLabel">Uploading…</span></div>
+        <button class="btn btn-sm" onclick="document.getElementById('fileInput').click()">+ Add Files</button>
+        <button class="btn btn-ghost btn-sm" onclick="refreshAll()">Refresh</button>
+      </div>
+      <div id="fileList"><div class="empty">Add a folder to start sharing files</div></div>
+    </div>
+
+  </main>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+const API = '/api';
+let qrInstance = null;
+let currentFilter = 'all';
+let allFiles = [];
+
+// ── Boot ────────────────────────────────────────────────────────────────────
+
+async function init() {
+  await loadStatus();
+  await loadFolders();
+  await loadFiles();
+}
+
+// ── Status ──────────────────────────────────────────────────────────────────
+
+async function loadStatus() {
+  try {
+    const r = await fetch(`${API}/status`);
+    const d = await r.json();
+    const addr = `${d.ip}:8765`;
+    document.getElementById('serverIp').textContent = addr;
+    document.getElementById('headerIp').textContent = addr;
+    document.getElementById('statusDot').style.background = 'var(--success)';
+    renderQR(addr);
+  } catch {
+    document.getElementById('serverIp').textContent = 'unavailable';
+    document.getElementById('statusDot').style.background = 'var(--error)';
+  }
+}
+
+function renderQR(text) {
+  const box = document.getElementById('qrBox');
+  box.innerHTML = '';
+  qrInstance = new QRCode(box, {
+    text,
+    width: 148,
+    height: 148,
+    colorDark: '#000000',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M,
+  });
+}
+
+// ── Folders ──────────────────────────────────────────────────────────────────
+
+async function loadFolders() {
+  const r = await fetch(`${API}/folders`);
+  const folders = await r.json();
+  const list = document.getElementById('folderList');
+  document.getElementById('folderCount').textContent = folders.length ? `${folders.length}` : '';
+  if (!folders.length) {
+    list.innerHTML = '<div class="empty">No folders added yet</div>';
+    return;
+  }
+  list.innerHTML = folders.map(f => `
+    <div class="folder-item">
+      <div style="flex:1">
+        <div class="folder-path">${f.path}</div>
+        <div class="folder-meta">${f.recursive ? 'Recursive' : 'Top-level'} · ${f.mediaOnly ? 'Media only' : 'All files'}</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="removeFolder('${f.id}')">✕</button>
+    </div>
+  `).join('');
+}
+
+async function addFolder() {
+  const input = document.getElementById('folderInput');
+  const msg = document.getElementById('folderMsg');
+  const path = input.value.trim();
+  if (!path) return;
+
+  const btn = document.getElementById('addFolderBtn');
+  btn.disabled = true;
+  msg.textContent = '';
+
+  try {
+    const r = await fetch(`${API}/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        path,
+        recursive: document.getElementById('optRecursive').checked,
+        media_only: document.getElementById('optMediaOnly').checked,
+      }),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = 'msg error'; msg.textContent = d.detail || 'Error'; return; }
+    msg.className = 'msg success';
+    msg.textContent = `Added — ${d.fileCount} file(s) found`;
+    input.value = '';
+    await loadFolders();
+    await loadFiles();
+  } catch (e) {
+    msg.className = 'msg error'; msg.textContent = 'Request failed';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function removeFolder(id) {
+  await fetch(`${API}/folders/${id}`, { method: 'DELETE' });
+  await loadFolders();
+  await loadFiles();
+}
+
+// ── Files ────────────────────────────────────────────────────────────────────
+
+async function loadFiles() {
+  const r = await fetch(`${API}/files`);
+  allFiles = await r.json();
+
+  const images = allFiles.filter(f => f.mimeType.startsWith('image/'));
+  const videos = allFiles.filter(f => f.mimeType.startsWith('video/'));
+  document.getElementById('statFiles').textContent = allFiles.length;
+  document.getElementById('statImages').textContent = images.length;
+  document.getElementById('statVideos').textContent = videos.length;
+
+  renderFiles();
+}
+
+function setFilter(filter, btn) {
+  currentFilter = filter;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderFiles();
+}
+
+function renderFiles() {
+  const files = allFiles.filter(f => {
+    if (currentFilter === 'image') return f.mimeType.startsWith('image/');
+    if (currentFilter === 'video') return f.mimeType.startsWith('video/');
+    return true;
+  });
+
+  const container = document.getElementById('fileList');
+  if (!files.length) {
+    container.innerHTML = '<div class="empty">No files</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="file-list">
+      ${files.map(f => `
+        <div class="file-list-item">
+          <div class="file-icon">${fileIcon(f.mimeType)}</div>
+          <div class="file-list-name" title="${f.name}">${f.name}</div>
+          <div class="file-list-size">${formatSize(f.size)}</div>
+          ${f.uploaded ? `<button class="delete-btn" title="Remove uploaded file" onclick="deleteFile('${f.id}', '${f.name.replace(/'/g, "\\'")}')">🗑</button>` : ''}
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+async function deleteFile(id, name) {
+  if (!confirm(`Remove "${name}" from uploads?\nThis cannot be undone.`)) return;
+  try {
+    const r = await fetch(`${API}/files/${id}`, { method: 'DELETE' });
+    if (!r.ok) { const d = await r.json(); throw new Error(d.detail || 'Delete failed'); }
+    showToast(`Deleted ${name}`, false);
+    await loadFiles();
+  } catch (e) {
+    showToast(e.message, true);
+  }
+}
+
+async function refreshAll() {
+  await fetch(`${API}/folders/refresh`, { method: 'POST' });
+  await loadFiles();
+}
+
+// ── Utils ────────────────────────────────────────────────────────────────────
+
+function fileIcon(mime) {
+  if (mime.startsWith('image/')) return '🖼️';
+  if (mime.startsWith('video/')) return '🎬';
+  return '📄';
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+document.getElementById('folderInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') addFolder();
+});
+
+// ── Drag & Drop ──────────────────────────────────────────────────────────────
+
+let dragCounter = 0;
+const overlay = document.getElementById('dropOverlay');
+
+document.addEventListener('dragenter', e => {
+  e.preventDefault();
+  dragCounter++;
+  if (dragCounter === 1) overlay.classList.add('visible');
+});
+
+document.addEventListener('dragleave', () => {
+  dragCounter--;
+  if (dragCounter === 0) overlay.classList.remove('visible');
+});
+
+document.addEventListener('dragover', e => {
+  e.preventDefault();
+});
+
+document.addEventListener('drop', e => {
+  e.preventDefault();
+  dragCounter = 0;
+  overlay.classList.remove('visible');
+  const files = e.dataTransfer?.files;
+  if (files && files.length > 0) uploadFiles(files);
+});
+
+// ── Upload ───────────────────────────────────────────────────────────────────
+
+function handleFileInputChange(input) {
+  if (input.files && input.files.length > 0) {
+    uploadFiles(input.files);
+    input.value = '';
+  }
+}
+
+async function uploadFiles(fileList) {
+  const progress = document.getElementById('uploadProgress');
+  const label = document.getElementById('uploadLabel');
+  progress.classList.add('visible');
+  label.textContent = `Uploading ${fileList.length} file(s)…`;
+
+  const form = new FormData();
+  for (const f of fileList) form.append('files', f);
+
+  try {
+    const r = await fetch(`${API}/upload`, { method: 'POST', body: form });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || 'Upload failed');
+    showToast(`Uploaded ${d.count} file(s)`, false);
+    await loadFiles();
+  } catch (e) {
+    showToast(e.message, true);
+  } finally {
+    progress.classList.remove('visible');
+  }
+}
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+
+let toastTimer;
+function showToast(msg, isError) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + (isError ? 'err' : 'ok');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = ''; }, 3000);
+}
+
+init();
+</script>
+</body>
+</html>

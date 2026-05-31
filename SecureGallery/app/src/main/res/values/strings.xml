@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">FeedVault</string>
+    <string name="select_folder">Selecionar Pasta</string>
+    <string name="loading">Carregando...</string>
+    <string name="no_media">Nenhuma mídia encontrada</string>
+</resources>

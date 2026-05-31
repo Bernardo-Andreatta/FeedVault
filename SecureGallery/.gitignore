@@ -1,0 +1,60 @@
+# Gradle
+.gradle/
+build/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+
+# Android Studio
+captures/
+.externalNativeBuild
+.cxx
+
+# Kotlin
+*.kt.class
+
+# Local configuration file
+local.properties
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+
+# Node (if using any Node build tools)
+node_modules/
+npm-debug.log
+
+# Signing keys (NEVER commit these!)
+*.jks
+*.keystore
+signing.properties
+
+# APK outputs
+app/release/
+outputs/
+
+# Temporary files
+*.bak
+*.tmp
+*.log
