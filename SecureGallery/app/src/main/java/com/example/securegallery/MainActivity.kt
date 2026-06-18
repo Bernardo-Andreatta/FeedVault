@@ -323,8 +323,8 @@ fun GalleryScreen(
     LaunchedEffect(uiState.feedScrollToTopVersion) {
         if (uiState.feedScrollToTopVersion > 0) {
             delay(50) // let LazyColumn finish re-anchoring after item reorder before overriding
-            feedListState.scrollToItem(0)
-            feedGridState.scrollToItem(0)
+            feedListState.animateScrollToItem(0)
+            feedGridState.animateScrollToItem(0)
         }
     }
 

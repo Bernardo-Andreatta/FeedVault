@@ -148,6 +148,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
+import coil.imageLoader
 import coil.request.ImageRequest
 import com.example.securegallery.data.MediaItem
 import com.example.securegallery.data.VideoClip
@@ -210,6 +211,8 @@ fun MediaFeed(
     if (isGridView) {
         val currentSelectedIds by rememberUpdatedState(selectedIds)
         val currentIsSelectionMode by rememberUpdatedState(isSelectionMode)
+        val currentOnFullscreenRequested by rememberUpdatedState(onFullscreenRequested)
+        val currentOnToggleSelection by rememberUpdatedState(onToggleSelection)
         val isScrolling by remember { derivedStateOf { gridState.isScrollInProgress } }
         val hapticFeedback = LocalHapticFeedback.current
 
@@ -238,8 +241,8 @@ fun MediaFeed(
                     when (gestureType) {
                         "TAP" -> {
                             if (downItem != null) {
-                                if (currentIsSelectionMode) onToggleSelection(downItem.id)
-                                else onFullscreenRequested(downItem, 0L, true, true)
+                                if (currentIsSelectionMode) currentOnToggleSelection(downItem.id)
+                                else currentOnFullscreenRequested(downItem, 0L, true, true)
                             }
                         }
                         "SCROLL" -> { /* not consumed → grid scrolls normally */ }
@@ -248,7 +251,7 @@ fun MediaFeed(
                             val startIndex = items.indexOfFirst { it.id == downId }
                             val dragAddedIds = mutableSetOf<Long>()
                             if (downItem != null && downItem.id !in currentSelectedIds) {
-                                onToggleSelection(downItem.id)
+                                currentOnToggleSelection(downItem.id)
                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                                 if (downId != null) dragAddedIds.add(downId)
                             }
@@ -268,7 +271,7 @@ fun MediaFeed(
                                         for (i in from..to) {
                                             val rangeId = items[i].id
                                             if (rangeId !in currentSelectedIds && rangeId !in dragAddedIds) {
-                                                onToggleSelection(rangeId)
+                                                currentOnToggleSelection(rangeId)
                                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 dragAddedIds.add(rangeId)
                                             }
@@ -517,23 +520,27 @@ fun MediaPost(
                 val isItemGif = item.mimeType == "image/gif" ||
                     (item.mimeType.isEmpty() && item.fileName.endsWith(".gif", ignoreCase = true))
                 val context = LocalContext.current
-                Box {
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(Uri.parse(item.uri))
-                            .memoryCacheKey("${item.uri}:static")
-                            .build(),
-                        // Static loader for all images: first frame only, no animation in list view.
-                        imageLoader = com.example.securegallery.App.staticImageLoader,
-                        contentDescription = item.fileName,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = if (availableHeight != Dp.Unspecified) availableHeight else 560.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { onFullscreenRequested(0L, true, true) }
-                    )
-                    if (isItemGif) {
+                if (isItemGif) {
+                    // GIF plays inline like a video: starts paused (first frame), tap toggles
+                    // animation. Static loader for the paused frame, animated singleton loader
+                    // for playback. Fullscreen only via the dedicated button.
+                    var gifPlaying by remember(item.id) { mutableStateOf(false) }
+                    Box {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(Uri.parse(item.uri))
+                                .memoryCacheKey(if (gifPlaying) "${item.uri}:anim" else "${item.uri}:static")
+                                .build(),
+                            imageLoader = if (gifPlaying) context.imageLoader
+                                          else com.example.securegallery.App.staticImageLoader,
+                            contentDescription = item.fileName,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = if (availableHeight != Dp.Unspecified) availableHeight else 560.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { gifPlaying = !gifPlaying }
+                        )
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
@@ -548,6 +555,60 @@ fun MediaPost(
                                 color = Color(0xFF69F0AE)
                             )
                         }
+                        // Play hint — shown only while paused
+                        if (!gifPlaying) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Black.copy(alpha = 0.45f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = "Reproduzir GIF",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+                        }
+                        // Fullscreen button — bottom-end
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(6.dp)
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(Color.Black.copy(alpha = 0.55f))
+                                .clickable { onFullscreenRequested(0L, true, true) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Fullscreen,
+                                contentDescription = "Tela cheia",
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Box {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(Uri.parse(item.uri))
+                                .memoryCacheKey("${item.uri}:static")
+                                .build(),
+                            // Static loader for all images: first frame only, no animation in list view.
+                            imageLoader = com.example.securegallery.App.staticImageLoader,
+                            contentDescription = item.fileName,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = if (availableHeight != Dp.Unspecified) availableHeight else 560.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { onFullscreenRequested(0L, true, true) }
+                        )
                     }
                 }
             }
@@ -1424,6 +1485,11 @@ fun FullscreenVideoOverlay(
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = !isZoomed,
+            // Bind each page slot to the item id, not the index. Without a stable key
+            // Compose reuses page slots by position; a reorder/shuffle that happens between
+            // the open request and first layout could leave a slot rendering the previous
+            // item → wrong video/image in fullscreen.
+            key = { page -> items[page].id },
             modifier = Modifier.fillMaxSize()
         ) { page ->
             val item = items[page]
