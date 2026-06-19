@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.DesktopWindows
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Photo
@@ -105,11 +106,13 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.securegallery.data.MediaItem
 import com.example.securegallery.data.VideoClip
+import com.example.securegallery.util.normalizeForSearch
 import com.example.securegallery.ui.AppSection
 import com.example.securegallery.ui.ClipSortOrder
 import com.example.securegallery.ui.GalleryViewModel
 import com.example.securegallery.ui.MediaSortOrder
 
+import com.example.securegallery.data.DesktopRepository
 import com.example.securegallery.data.DownloadItem
 import com.example.securegallery.data.DownloadStatus
 import com.example.securegallery.ui.DownloadQueueViewModel
@@ -117,6 +120,8 @@ import com.example.securegallery.ui.components.ClipFullscreenOverlay
 import com.example.securegallery.ui.components.DismissableDownloadFab
 import com.example.securegallery.ui.components.DownloadQueueSheet
 import com.example.securegallery.ui.components.ClipsFeed
+import com.example.securegallery.ui.DesktopViewModel
+import com.example.securegallery.ui.components.DesktopScreen
 import com.example.securegallery.ui.components.CompactSearchBar
 import com.example.securegallery.ui.components.EmptyStateView
 import com.example.securegallery.ui.components.FilterBar
@@ -280,6 +285,15 @@ fun GalleryScreen(
             }
         }
     )
+    val desktopViewModel: DesktopViewModel = viewModel(
+        key = "desktop",
+        factory = object : androidx.lifecycle.ViewModelProvider.Factory {
+            override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                @Suppress("UNCHECKED_CAST")
+                return DesktopViewModel(context) as T
+            }
+        }
+    )
     val downloadQueueViewModel: DownloadQueueViewModel = viewModel(
         key = "downloadQueue",
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
@@ -390,6 +404,45 @@ fun GalleryScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    var pendingDesktopFile by remember { mutableStateOf<com.example.securegallery.data.DesktopFile?>(null) }
+    var showUseDesktopFolderDialog by remember { mutableStateOf(false) }
+    var pendingDesktopFiles by remember { mutableStateOf<List<com.example.securegallery.data.DesktopFile>>(emptyList()) }
+    var showUseDesktopFolderBulkDialog by remember { mutableStateOf(false) }
+
+    val desktopFolderLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) {
+            pendingDesktopFile = null
+            pendingDesktopFiles = emptyList()
+            return@rememberLauncherForActivityResult
+        }
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
+        desktopViewModel.setDownloadFolderUri(uri.toString())
+        val bulk = pendingDesktopFiles
+        if (bulk.isNotEmpty()) {
+            pendingDesktopFiles = emptyList()
+            bulk.forEach { f ->
+                val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, f.id)
+                downloadQueueViewModel.enqueue(
+                    DownloadItem(name = f.name, source = "Desktop", url = url, fileName = f.name, folderUri = uri)
+                )
+            }
+        } else {
+            val file = pendingDesktopFile ?: return@rememberLauncherForActivityResult
+            pendingDesktopFile = null
+            val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, file.id)
+            downloadQueueViewModel.enqueue(
+                DownloadItem(name = file.name, source = "Desktop", url = url, fileName = file.name, folderUri = uri)
+            )
+        }
+    }
+
     // Catch-all: lowest priority — handles everything, swallows back when already at default
     BackHandler(enabled = true) {
         when {
@@ -450,6 +503,16 @@ fun GalleryScreen(
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
+                NavigationDrawerItem(
+                    icon = { Icon(Icons.Default.DesktopWindows, contentDescription = null) },
+                    label = { Text("Desktop") },
+                    selected = uiState.currentSection == AppSection.DESKTOP,
+                    onClick = {
+                        viewModel.setSection(AppSection.DESKTOP)
+                        scope.launch { drawerState.close() }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
 
                 Divider()
                 Spacer(modifier = Modifier.height(4.dp))
@@ -502,7 +565,10 @@ fun GalleryScreen(
                     }
 
                     val peopleToShow = if (uiState.drawerPeopleSearch.isBlank()) uiState.allPeople
-                        else uiState.allPeople.filter { it.contains(uiState.drawerPeopleSearch, ignoreCase = true) }
+                        else {
+                            val q = uiState.drawerPeopleSearch.normalizeForSearch()
+                            uiState.allPeople.filter { it.normalizeForSearch().contains(q) }
+                        }
 
                     if (uiState.allPeople.isNotEmpty()) {
                         item {
@@ -662,9 +728,10 @@ fun GalleryScreen(
                         title = {
                             val sectionName = when (uiState.currentSection) {
                                 AppSection.CLIPS -> "Clipes"
+                                AppSection.DESKTOP -> "Desktop"
                                 else -> "Galeria"
                             }
-                            val personLabel = when {
+                            val personLabel = if (uiState.currentSection == AppSection.DESKTOP) null else when {
                                 uiState.filterUntaggedPeople -> "Sem Pessoas"
                                 uiState.selectedPeople.isNotEmpty() -> uiState.selectedPeople.joinToString(", ")
                                 else -> null
@@ -682,7 +749,9 @@ fun GalleryScreen(
                             }
                         },
                         actions = {
-                            run {
+                            when (uiState.currentSection) {
+                                AppSection.DESKTOP -> {}
+                                else -> {
                                     val isClips = uiState.currentSection == AppSection.CLIPS
                                     IconButton(onClick = { viewModel.toggleGridView() }) {
                                         Icon(
@@ -709,21 +778,25 @@ fun GalleryScreen(
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
+                                }
                             }
                         }
                     )
                     // ── Thin secondary bar: sort + search-with-dropdown + type filters ──
-                    run {
+                    when (uiState.currentSection) {
+                        AppSection.DESKTOP -> {}
+                        else -> {
                     val isClipsBar = uiState.currentSection == AppSection.CLIPS
                     val sortIsDefault = if (isClipsBar) uiState.clipSortOrder == ClipSortOrder.DATE_CREATED_DESC
                                        else (uiState.mediaSortOrder == MediaSortOrder.DATE_MODIFIED_DESC && !uiState.isShuffled)
                     val activeTags = if (isClipsBar) uiState.selectedClipTags else uiState.selectedTags
                     val allSearchTags = if (isClipsBar) uiState.allClipTags else uiState.allTags
                     val query = uiState.searchQuery
+                    val normQuery = query.normalizeForSearch()
                     val matchingTags = if (query.isBlank()) emptyList()
-                        else allSearchTags.filter { it.contains(query, ignoreCase = true) }.take(6)
+                        else allSearchTags.filter { it.normalizeForSearch().contains(normQuery) }.take(6)
                     val matchingPeople = if (query.isBlank()) emptyList()
-                        else uiState.allPeople.filter { it.contains(query, ignoreCase = true) }.take(4)
+                        else uiState.allPeople.filter { it.normalizeForSearch().contains(normQuery) }.take(4)
                     val showSearchDropdown = matchingTags.isNotEmpty() || matchingPeople.isNotEmpty()
 
                     Row(
@@ -968,11 +1041,39 @@ fun GalleryScreen(
                             }
                         }
                     }
-                    } // end run
+                        } // end else
+                    } // end when
                 }
             }
         ) { padding ->
             when {
+                uiState.currentSection == AppSection.DESKTOP -> {
+                    DesktopScreen(
+                        viewModel = desktopViewModel,
+                        onSaveFile = { file ->
+                            val existingFolder = desktopViewModel.getDownloadFolderUri()
+                            if (existingFolder == null) {
+                                pendingDesktopFile = file
+                                desktopFolderLauncher.launch(null)
+                            } else {
+                                pendingDesktopFile = file
+                                showUseDesktopFolderDialog = true
+                            }
+                        },
+                        onSaveAll = { files ->
+                            val existingFolder = desktopViewModel.getDownloadFolderUri()
+                            if (existingFolder == null) {
+                                pendingDesktopFiles = files
+                                desktopFolderLauncher.launch(null)
+                            } else {
+                                pendingDesktopFiles = files
+                                showUseDesktopFolderBulkDialog = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize().padding(padding)
+                    )
+                }
+
                 uiState.isLoading -> {
                     LoadingView(modifier = Modifier.padding(padding))
                 }
@@ -1135,6 +1236,65 @@ fun GalleryScreen(
                     }
                 }
             }
+        }
+
+        // Desktop download folder dialog
+        if (showUseDesktopFolderDialog && pendingDesktopFile != null) {
+            val folderName = desktopViewModel.getDownloadFolderName() ?: "pasta selecionada"
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showUseDesktopFolderDialog = false; pendingDesktopFile = null },
+                title = { Text("Salvar arquivo") },
+                text = { Text("Usar \"$folderName\"?") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showUseDesktopFolderDialog = false
+                        val file = pendingDesktopFile ?: return@TextButton
+                        pendingDesktopFile = null
+                        val folder = desktopViewModel.getDownloadFolderUri() ?: return@TextButton
+                        val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, file.id)
+                        downloadQueueViewModel.enqueue(
+                            DownloadItem(name = file.name, source = "Desktop", url = url, fileName = file.name, folderUri = folder)
+                        )
+                    }) { Text("Usar esta pasta") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showUseDesktopFolderDialog = false
+                        desktopFolderLauncher.launch(null)
+                    }) { Text("Escolher outra pasta") }
+                }
+            )
+        }
+
+        // Desktop bulk download folder dialog
+        if (showUseDesktopFolderBulkDialog && pendingDesktopFiles.isNotEmpty()) {
+            val folderName = desktopViewModel.getDownloadFolderName() ?: "pasta selecionada"
+            val count = pendingDesktopFiles.size
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showUseDesktopFolderBulkDialog = false; pendingDesktopFiles = emptyList() },
+                title = { Text("Baixar todos") },
+                text = { Text("Baixar $count arquivo${if (count != 1) "s" else ""} para \"$folderName\"?") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showUseDesktopFolderBulkDialog = false
+                        val files = pendingDesktopFiles
+                        pendingDesktopFiles = emptyList()
+                        val folder = desktopViewModel.getDownloadFolderUri() ?: return@TextButton
+                        files.forEach { f ->
+                            val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, f.id)
+                            downloadQueueViewModel.enqueue(
+                                DownloadItem(name = f.name, source = "Desktop", url = url, fileName = f.name, folderUri = folder)
+                            )
+                        }
+                    }) { Text("Baixar tudo") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showUseDesktopFolderBulkDialog = false
+                        desktopFolderLauncher.launch(null)
+                    }) { Text("Escolher outra pasta") }
+                }
+            )
         }
 
         // Dialogs

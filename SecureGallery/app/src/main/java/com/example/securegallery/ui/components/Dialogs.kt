@@ -1,5 +1,6 @@
 package com.example.securegallery.ui.components
 
+import com.example.securegallery.util.normalizeForSearch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,10 +54,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
-private fun String.normalizeForSearch(): String =
-    java.text.Normalizer.normalize(this, java.text.Normalizer.Form.NFD)
-        .replace(Regex("\\p{M}"), "")
-        .lowercase()
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable

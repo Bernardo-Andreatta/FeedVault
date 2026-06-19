@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.securegallery.data.AppDatabase
+import com.example.securegallery.util.normalizeForSearch
 import com.example.securegallery.data.MediaItem
 import com.example.securegallery.data.MediaRepository
 import com.example.securegallery.data.VideoClip
@@ -13,7 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-enum class AppSection { GALLERY, CLIPS }
+enum class AppSection { GALLERY, CLIPS, DESKTOP }
 
 enum class MediaSortOrder(val label: String) {
     DATE_MODIFIED_DESC("Modificado (recente)"),
@@ -269,7 +270,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
         val filterUntaggedPeople = _uiState.value.filterUntaggedPeople
         val filterFavorites = _uiState.value.filterFavorites
         val mediaTypeFilter = _uiState.value.mediaTypeFilter
-        val searchQuery = _uiState.value.searchQuery.trim().lowercase()
+        val searchQuery = _uiState.value.searchQuery.trim().normalizeForSearch()
 
         val filtered = allMedia.filter { item ->
             val personMatch = when {
@@ -288,9 +289,9 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                 else    -> true
             }
             val searchMatch = searchQuery.isEmpty() ||
-                item.fileName.lowercase().contains(searchQuery) ||
-                item.tags.any { it.lowercase().contains(searchQuery) } ||
-                item.people.any { it.lowercase().contains(searchQuery) }
+                item.fileName.normalizeForSearch().contains(searchQuery) ||
+                item.tags.any { it.normalizeForSearch().contains(searchQuery) } ||
+                item.people.any { it.normalizeForSearch().contains(searchQuery) }
             personMatch && tagsMatch && favMatch && typeMatch && searchMatch
         }
 
@@ -338,11 +339,11 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             val tagMatch = selectedClipTags.isEmpty() || selectedClipTags.any { clip.tags.contains(it) }
             val favClipMatch = !filterFavoriteClips || clip.isFavorite
             val clipSearchMatch = searchQuery.isEmpty() ||
-                clip.label.lowercase().contains(searchQuery) ||
-                clip.tags.any { it.lowercase().contains(searchQuery) } ||
+                clip.label.normalizeForSearch().contains(searchQuery) ||
+                clip.tags.any { it.normalizeForSearch().contains(searchQuery) } ||
                 mediaById[clip.mediaItemId]?.let { item ->
-                    item.fileName.lowercase().contains(searchQuery) ||
-                    item.people.any { it.lowercase().contains(searchQuery) }
+                    item.fileName.normalizeForSearch().contains(searchQuery) ||
+                    item.people.any { it.normalizeForSearch().contains(searchQuery) }
                 } == true
             tagMatch && favClipMatch && clipSearchMatch
         }
