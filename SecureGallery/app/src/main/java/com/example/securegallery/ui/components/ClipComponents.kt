@@ -91,6 +91,8 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.securegallery.vault.VaultSession
+import com.example.securegallery.ui.theme.FavoriteRose
 import com.example.securegallery.data.MediaItem
 import com.example.securegallery.data.VideoClip
 import kotlinx.coroutines.Dispatchers
@@ -351,7 +353,7 @@ fun ClipCard(
                         Icon(
                             imageVector = if (clip.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Favorito",
-                            tint = if (clip.isFavorite) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface,
+                            tint = if (clip.isFavorite) FavoriteRose else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -517,7 +519,7 @@ private fun ClipFullscreenPage(
             .setEndPositionMs(clip.endMs)
             .build()
         val mediaItem = Media3Item.Builder()
-            .setUri(Uri.parse(clip.uri))
+            .setUri(VaultSession.resolve(clip.uri))
             .setClippingConfiguration(clipConfig)
             .build()
         ExoPlayer.Builder(context).build().apply {
@@ -588,7 +590,7 @@ private fun ClipFullscreenPage(
                     launch {
                         val retriever = MediaMetadataRetriever()
                         try {
-                            retriever.setDataSource(context, Uri.parse(clip.uri))
+                            retriever.setDataSource(context, VaultSession.resolve(clip.uri))
                             var i = group
                             while (i < count) {
                                 val timeUs = (clip.startMs + clipDuration * i / count) * 1000L
@@ -752,7 +754,7 @@ private fun ClipFullscreenPage(
                         Icon(
                             imageVector = if (clip.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Favorito",
-                            tint = if (clip.isFavorite) Color(0xFFE91E63) else Color.White,
+                            tint = if (clip.isFavorite) FavoriteRose else Color.White,
                             modifier = Modifier.size(22.dp)
                         )
                     }

@@ -9,10 +9,15 @@ import com.example.securegallery.util.normalizeForSearch
 import com.example.securegallery.data.MediaItem
 import com.example.securegallery.data.MediaRepository
 import com.example.securegallery.data.VideoClip
+import com.example.securegallery.vault.VaultManager
+import com.example.securegallery.vault.VaultSession
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import javax.crypto.Cipher
 
 enum class AppSection { GALLERY, CLIPS, DESKTOP }
 
@@ -70,7 +75,14 @@ data class AppUiState(
     val selectedIds: Set<Long> = emptySet(),
     val isSelectionMode: Boolean = false,
     val mediaSortOrder: MediaSortOrder = MediaSortOrder.DATE_MODIFIED_DESC,
-    val clipSortOrder: ClipSortOrder = ClipSortOrder.DATE_CREATED_DESC
+    val clipSortOrder: ClipSortOrder = ClipSortOrder.DATE_CREATED_DESC,
+    // Vault ("Cofre") — encrypted mirror of the gallery
+    val vaultMode: Boolean = false,
+    val vaultInitialized: Boolean = false,
+    val vaultUnlocked: Boolean = false,
+    val vaultBusy: Boolean = false,
+    val vaultBusyMessage: String? = null,
+    val vaultBiometricEnabled: Boolean = false
 )
 
 class GalleryViewModel(private val context: Context) : ViewModel() {
@@ -95,33 +107,19 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
         val dao = database.mediaItemDao()
         repository = MediaRepository(context, dao, database.videoClipDao())
 
+        _uiState.value = _uiState.value.copy(
+            vaultInitialized = VaultManager.isInitialized(context),
+            vaultBiometricEnabled = VaultManager.isBiometricEnabled(context)
+        )
+
         viewModelScope.launch {
             repository.getAllMediaItems().collect { media ->
+                VaultSession.register(media)
                 _uiState.value = _uiState.value.copy(allMedia = media)
                 if (_uiState.value.isShuffled && shuffleOrder.isEmpty() && media.isNotEmpty()) {
                     shuffleOrder = media.map { it.id }.shuffled()
                 }
                 updateFilteredMedia()
-            }
-        }
-
-        viewModelScope.launch {
-            repository.getAllTags().collect { tags ->
-                val allTags = tags.flatMap { it.split(",") }
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                _uiState.value = _uiState.value.copy(allTags = allTags)
-            }
-        }
-
-        viewModelScope.launch {
-            repository.getAllPeople().collect { people ->
-                val flat = people.flatMap { it.split(",") }.filter { it.isNotBlank() }.distinct()
-                val savedOrder = prefs.getString("people_order", null)
-                    ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
-                // Keep saved order for existing people, append new ones at end (distinct guards corrupted prefs)
-                val ordered = (savedOrder.filter { it in flat }.distinct() + flat.filter { it !in savedOrder })
-                _uiState.value = _uiState.value.copy(allPeople = ordered)
             }
         }
 
@@ -264,7 +262,10 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     }
 
     private fun updateFilteredMedia(scrollFeed: Boolean = false, scrollClips: Boolean = false) {
-        val allMedia = _uiState.value.allMedia
+        val vaultMode = _uiState.value.vaultMode
+        val vaultReady = !vaultMode || _uiState.value.vaultUnlocked
+        // Each mode sees only its own media: encrypted in the Cofre, system media otherwise.
+        val allMedia = if (vaultReady) _uiState.value.allMedia.filter { it.encrypted == vaultMode } else emptyList()
         val selectedPeople = _uiState.value.selectedPeople
         val selectedTags = _uiState.value.selectedTags
         val filterUntaggedPeople = _uiState.value.filterUntaggedPeople
@@ -359,7 +360,16 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             .groupBy { it }.map { (tag, list) -> tag to list.size }
             .sortedByDescending { it.second }
 
+        // Tags + people are scoped to the active mode so the Cofre never leaks names into the normal gallery.
+        val modeTags = allMedia.flatMap { it.tags }.filter { it.isNotBlank() }.distinct()
+        val flatPeople = allMedia.flatMap { it.people }.filter { it.isNotBlank() }.distinct()
+        val savedOrder = prefs.getString("people_order", null)
+            ?.split(",")?.filter { it.isNotBlank() } ?: emptyList()
+        val modePeople = (savedOrder.filter { it in flatPeople }.distinct() + flatPeople.filter { it !in savedOrder })
+
         _uiState.value = _uiState.value.copy(
+            allTags = modeTags,
+            allPeople = modePeople,
             filteredMedia = result,
             filteredAvailableTags = filteredAvailableTags,
             filteredClips = filteredClips,
@@ -620,6 +630,123 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                 repository.updatePeople(id, (item.people + people).distinct())
             }
         }
+    }
+
+    // ── Vault ("Cofre") ─────────────────────────────────────────────────────────
+
+    fun setVaultMode(enabled: Boolean) {
+        _uiState.value = _uiState.value.copy(
+            vaultMode = enabled,
+            vaultInitialized = VaultManager.isInitialized(context),
+            vaultBiometricEnabled = VaultManager.isBiometricEnabled(context),
+            selectedIds = emptySet(),
+            isSelectionMode = false,
+            currentSection = AppSection.GALLERY,
+            currentlyPlayingUri = null
+        )
+        shuffleOrder = emptyList()
+        updateFilteredMedia(scrollFeed = true, scrollClips = true)
+    }
+
+    fun vaultSetupPassword(password: String) {
+        if (password.length < 4) { setError("Use pelo menos 4 caracteres"); return }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { VaultManager.setupPassword(context, password.toCharArray()) }
+            onVaultUnlocked()
+        }
+    }
+
+    fun vaultUnlockPassword(password: String) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) { VaultManager.unlockWithPassword(context, password.toCharArray()) }
+            if (ok) onVaultUnlocked() else setError("Senha incorreta")
+        }
+    }
+
+    private fun onVaultUnlocked() {
+        // Decrypt everything first (gate stays up showing progress) so the feed never
+        // triggers a blocking decrypt on the main thread once it becomes visible.
+        _uiState.value = _uiState.value.copy(
+            vaultInitialized = true,
+            vaultBiometricEnabled = VaultManager.isBiometricEnabled(context),
+            vaultBusy = true,
+            vaultBusyMessage = "Descriptografando..."
+        )
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { VaultSession.decryptAll() }
+            _uiState.value = _uiState.value.copy(vaultUnlocked = true, vaultBusy = false, vaultBusyMessage = null)
+            updateFilteredMedia(scrollFeed = true, scrollClips = true)
+        }
+    }
+
+    // Auto-lock when the app is backgrounded, except across an intentional picker launch
+    // (the system file picker backgrounds us too).
+    private var suppressAutoLock = false
+
+    fun markVaultPickerLaunch() { suppressAutoLock = true }
+
+    fun onAppBackgrounded() {
+        if (!suppressAutoLock && _uiState.value.vaultUnlocked) vaultLock()
+    }
+
+    fun onAppForegrounded() { suppressAutoLock = false }
+
+    fun vaultLock() {
+        VaultManager.lock(context)
+        VaultSession.clear()
+        _uiState.value = _uiState.value.copy(vaultUnlocked = false, currentlyPlayingUri = null)
+        updateFilteredMedia()
+    }
+
+    fun importToVault(uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Protegendo mídia...")
+            var failed = 0
+            uris.forEachIndexed { i, uri ->
+                _uiState.value = _uiState.value.copy(vaultBusyMessage = "Protegendo ${i + 1}/${uris.size}...")
+                if (!repository.importToVault(uri)) failed++
+            }
+            _uiState.value = _uiState.value.copy(vaultBusy = false, vaultBusyMessage = null)
+            if (failed > 0) setError("$failed item(s) não puderam ser protegidos")
+        }
+    }
+
+    fun restoreFromVault(item: MediaItem) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Restaurando...")
+            val ok = repository.restoreFromVault(item)
+            _uiState.value = _uiState.value.copy(vaultBusy = false, vaultBusyMessage = null)
+            if (!ok) setError("Falha ao restaurar")
+        }
+    }
+
+    fun restoreSelectedFromVault() {
+        viewModelScope.launch {
+            val items = _uiState.value.allMedia.filter { it.id in _uiState.value.selectedIds && it.encrypted }
+            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Restaurando...")
+            items.forEach { repository.restoreFromVault(it) }
+            _uiState.value = _uiState.value.copy(
+                vaultBusy = false, vaultBusyMessage = null,
+                selectedIds = emptySet(), isSelectionMode = false
+            )
+        }
+    }
+
+    fun vaultBiometricEncryptCipher(): Cipher? =
+        runCatching { VaultManager.biometricEncryptCipher() }.getOrNull()
+
+    fun vaultBiometricDecryptCipher(): Cipher? = VaultManager.biometricDecryptCipher(context)
+
+    fun vaultCompleteEnableBiometric(cipher: Cipher) {
+        runCatching { VaultManager.enableBiometric(context, cipher) }
+            .onFailure { setError("Não foi possível ativar biometria") }
+        _uiState.value = _uiState.value.copy(vaultBiometricEnabled = VaultManager.isBiometricEnabled(context))
+    }
+
+    fun vaultCompleteBiometricUnlock(cipher: Cipher) {
+        if (VaultManager.unlockWithBiometric(context, cipher)) onVaultUnlocked()
+        else setError("Falha na biometria")
     }
 
 }

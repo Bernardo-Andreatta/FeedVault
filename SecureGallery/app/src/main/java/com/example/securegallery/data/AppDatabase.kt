@@ -59,11 +59,34 @@ private val MIGRATION_7_8 = object : Migration(7, 8) {
     }
 }
 
-@Database(entities = [MediaItem::class, VideoClip::class], version = 8)
+private val MIGRATION_8_9 = object : Migration(8, 9) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL(
+            "CREATE TABLE IF NOT EXISTS vault_items (" +
+            "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+            "storedFileName TEXT NOT NULL, " +
+            "displayName TEXT NOT NULL, " +
+            "mediaType TEXT NOT NULL, " +
+            "mimeType TEXT NOT NULL, " +
+            "sizeBytes INTEGER NOT NULL DEFAULT 0, " +
+            "aspectRatio REAL NOT NULL DEFAULT 0, " +
+            "dateAdded INTEGER NOT NULL)"
+        )
+    }
+}
+
+private val MIGRATION_9_10 = object : Migration(9, 10) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE media_items ADD COLUMN encrypted INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+@Database(entities = [MediaItem::class, VideoClip::class, VaultItem::class], version = 10)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mediaItemDao(): MediaItemDao
     abstract fun videoClipDao(): VideoClipDao
+    abstract fun vaultItemDao(): VaultItemDao
 
     companion object {
         @Volatile
@@ -76,7 +99,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "secure_gallery_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .build()
                 INSTANCE = instance
                 instance

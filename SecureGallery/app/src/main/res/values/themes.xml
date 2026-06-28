@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.SecureGallery" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.FeedVault" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">@color/ink</item>
+        <item name="android:statusBarColor">@color/ink</item>
+        <item name="android:navigationBarColor">@color/ink</item>
     </style>
 
     <color name="purple_200">#FFBB86FC</color>
@@ -10,4 +13,5 @@
     <color name="teal_700">#FF018786</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="ink">#FF0E1116</color>
 </resources>

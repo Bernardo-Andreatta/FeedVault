@@ -20,6 +20,7 @@ class App : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        com.example.securegallery.vault.VaultSession.init(this)
         staticImageLoader = ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)

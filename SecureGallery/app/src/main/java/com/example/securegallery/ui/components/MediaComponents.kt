@@ -150,6 +150,8 @@ import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.imageLoader
 import coil.request.ImageRequest
+import com.example.securegallery.vault.VaultSession
+import com.example.securegallery.ui.theme.FavoriteRose
 import com.example.securegallery.data.MediaItem
 import com.example.securegallery.data.VideoClip
 import kotlinx.coroutines.Dispatchers
@@ -358,7 +360,7 @@ fun MediaGridItem(
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
-                .data(Uri.parse(item.uri))
+                .data(VaultSession.resolve(item.uri))
                 .apply {
                     if (item.mediaType == "video") {
                         decoderFactory(VideoFrameDecoder.Factory())
@@ -408,7 +410,7 @@ fun MediaGridItem(
             Icon(
                 Icons.Default.Favorite,
                 contentDescription = null,
-                tint = Color(0xFFE91E63),
+                tint = FavoriteRose,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(3.dp)
@@ -525,22 +527,35 @@ fun MediaPost(
                     // animation. Static loader for the paused frame, animated singleton loader
                     // for playback. Fullscreen only via the dedicated button.
                     var gifPlaying by remember(item.id) { mutableStateOf(false) }
-                    Box {
+                    Box(modifier = Modifier.clickable { gifPlaying = !gifPlaying }) {
+                        // The static first frame is always mounted and defines the card size.
+                        // The animated GIF is overlaid on top while playing, so swapping loaders
+                        // never flashes the background or resizes the card.
                         AsyncImage(
                             model = ImageRequest.Builder(context)
-                                .data(Uri.parse(item.uri))
-                                .memoryCacheKey(if (gifPlaying) "${item.uri}:anim" else "${item.uri}:static")
+                                .data(VaultSession.resolve(item.uri))
+                                .memoryCacheKey("${item.uri}:static")
                                 .build(),
-                            imageLoader = if (gifPlaying) context.imageLoader
-                                          else com.example.securegallery.App.staticImageLoader,
+                            imageLoader = com.example.securegallery.App.staticImageLoader,
                             contentDescription = item.fileName,
                             contentScale = ContentScale.Fit,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .heightIn(max = if (availableHeight != Dp.Unspecified) availableHeight else 560.dp)
                                 .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable { gifPlaying = !gifPlaying }
                         )
+                        if (gifPlaying) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(VaultSession.resolve(item.uri))
+                                    .memoryCacheKey("${item.uri}:anim")
+                                    .build(),
+                                imageLoader = context.imageLoader,
+                                contentDescription = item.fileName,
+                                contentScale = ContentScale.Fit,
+                                modifier = Modifier.matchParentSize()
+                            )
+                        }
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
@@ -596,7 +611,7 @@ fun MediaPost(
                     Box {
                         AsyncImage(
                             model = ImageRequest.Builder(context)
-                                .data(Uri.parse(item.uri))
+                                .data(VaultSession.resolve(item.uri))
                                 .memoryCacheKey("${item.uri}:static")
                                 .build(),
                             // Static loader for all images: first frame only, no animation in list view.
@@ -662,13 +677,18 @@ fun MediaPost(
                 }
             }
 
-            // Tags + people row
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+            // Tags wrap on the left within their own space; the icon cluster keeps a fixed
+            // spot on the right and is never pushed by the tags.
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+              FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.weight(1f).padding(top = 5.dp)
             ) {
                 // People pills first
                 item.people.filter { it.isNotBlank() }.forEach { person ->
@@ -781,62 +801,56 @@ fun MediaPost(
                         Text("+", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                     }
                 }
-            }
-
-            // Action row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Spacer(modifier = Modifier.weight(1f))
-                if (onRemoveTag != null && tags.isNotEmpty()) {
+              }
+                Spacer(modifier = Modifier.width(8.dp))
+                // Fixed icon cluster — tags never push it; they wrap in the space to the left.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onRemoveTag != null && tags.isNotEmpty()) {
+                        IconButton(
+                            onClick = { tagEditMode = !tagEditMode },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = "Editar tags",
+                                tint = if (tagEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
                     IconButton(
-                        onClick = { tagEditMode = !tagEditMode },
-                        modifier = Modifier.size(32.dp)
+                        onClick = onToggleFavorite,
+                        modifier = Modifier.size(30.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Editar tags",
-                            tint = if (tagEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(18.dp)
+                            imageVector = if (item.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorito",
+                            tint = if (item.isFavorite) FavoriteRose else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
-                }
-                IconButton(
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = if (item.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorito",
-                        tint = if (item.isFavorite) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                IconButton(
-                    onClick = onEditPeople,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Person,
-                        contentDescription = "Pessoas",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                IconButton(
-                    onClick = { showDeleteConfirm = true },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Deletar",
-                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
-                        modifier = Modifier.size(20.dp)
-                    )
+                    IconButton(
+                        onClick = onEditPeople,
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Person,
+                            contentDescription = "Pessoas",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Deletar",
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -976,7 +990,7 @@ fun VideoPlayer(
                 .build().apply {
                 val mediaItem = if (clipStartMs != null && clipEndMs != null) {
                     Media3Item.Builder()
-                        .setUri(Uri.parse(uri))
+                        .setUri(VaultSession.resolve(uri))
                         .setClippingConfiguration(
                             Media3Item.ClippingConfiguration.Builder()
                                 .setStartPositionMs(clipStartMs)
@@ -985,7 +999,7 @@ fun VideoPlayer(
                         )
                         .build()
                 } else {
-                    Media3Item.fromUri(Uri.parse(uri))
+                    Media3Item.fromUri(VaultSession.resolve(uri))
                 }
                 setMediaItem(mediaItem)
                 repeatMode = Player.REPEAT_MODE_ONE
@@ -1046,7 +1060,7 @@ fun VideoPlayer(
                 .build().apply {
                 val mediaItem = if (clipStartMs != null && clipEndMs != null) {
                     Media3Item.Builder()
-                        .setUri(Uri.parse(uri))
+                        .setUri(VaultSession.resolve(uri))
                         .setClippingConfiguration(
                             Media3Item.ClippingConfiguration.Builder()
                                 .setStartPositionMs(clipStartMs)
@@ -1055,7 +1069,7 @@ fun VideoPlayer(
                         )
                         .build()
                 } else {
-                    Media3Item.fromUri(Uri.parse(uri))
+                    Media3Item.fromUri(VaultSession.resolve(uri))
                 }
                 setMediaItem(mediaItem)
                 repeatMode = Player.REPEAT_MODE_ONE
@@ -1178,7 +1192,7 @@ fun VideoPlayer(
             val thumbFrameMs = clipStartMs ?: thumbnailFrameMs.takeIf { it >= 0 }
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(Uri.parse(uri))
+                    .data(VaultSession.resolve(uri))
                     .decoderFactory(VideoFrameDecoder.Factory())
                     .apply { if (thumbFrameMs != null) setParameter("coil#video_frame_micros", thumbFrameMs * 1000L) }
                     .memoryCacheKey("$uri:${thumbFrameMs ?: -1}")
@@ -1629,7 +1643,7 @@ fun FullscreenVideoPage(
                     .build()
             )
             .build().apply {
-                setMediaItem(Media3Item.fromUri(Uri.parse(mediaItem.uri)))
+                setMediaItem(Media3Item.fromUri(VaultSession.resolve(mediaItem.uri)))
                 repeatMode = Player.REPEAT_MODE_ONE
                 playWhenReady = false
                 volume = if (startMuted) 0f else 1f
@@ -1712,7 +1726,7 @@ fun FullscreenVideoPage(
         val meta = withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
             try {
-                retriever.setDataSource(context, Uri.parse(mediaItem.uri))
+                retriever.setDataSource(context, VaultSession.resolve(mediaItem.uri))
                 val dur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
                 val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
                 val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
@@ -1739,7 +1753,7 @@ fun FullscreenVideoPage(
                     launch {
                         val retriever = MediaMetadataRetriever()
                         try {
-                            retriever.setDataSource(context, Uri.parse(mediaItem.uri))
+                            retriever.setDataSource(context, VaultSession.resolve(mediaItem.uri))
                             var i = group
                             while (i < count) {
                                 val timeUs = dur * 1000L * i / count
@@ -1998,7 +2012,7 @@ fun FullscreenVideoPage(
                     Icon(
                         imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = if (isFavorite) "Remover favorito" else "Favoritar",
-                        tint = if (isFavorite) Color(0xFFE91E63) else Color.White,
+                        tint = if (isFavorite) FavoriteRose else Color.White,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -2465,7 +2479,7 @@ fun VideoScrubberReel(
         withContext(Dispatchers.IO) {
             val retriever = MediaMetadataRetriever()
             try {
-                retriever.setDataSource(context, Uri.parse(uri))
+                retriever.setDataSource(context, VaultSession.resolve(uri))
                 val dur = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                     ?.toLongOrNull() ?: 0L
                 val vw = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
@@ -2758,7 +2772,7 @@ private fun FullscreenImagePage(
         contentAlignment = Alignment.Center
     ) {
         AsyncImage(
-            model = Uri.parse(mediaItem.uri),
+            model = VaultSession.resolve(mediaItem.uri),
             contentDescription = null,
             contentScale = ContentScale.Fit,
             modifier = Modifier
@@ -2853,7 +2867,7 @@ fun ImageFullscreenDialog(uri: String, onDismiss: () -> Unit) {
             contentAlignment = Alignment.Center
         ) {
             AsyncImage(
-                model = Uri.parse(uri),
+                model = VaultSession.resolve(uri),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier

@@ -49,6 +49,9 @@ interface MediaItemDao {
     @Query("DELETE FROM media_items WHERE uri = :uri")
     suspend fun deleteByUri(uri: String)
 
+    @Query("SELECT * FROM media_items WHERE encrypted = 0 AND fileName = :fileName AND ABS(lastModified - :lastModified) < 2000")
+    suspend fun findUnencryptedByNameModified(fileName: String, lastModified: Long): List<MediaItem>
+
     @Query("UPDATE media_items SET aspectRatio = :ratio WHERE id = :id")
     suspend fun updateAspectRatio(id: Long, ratio: Float)
 

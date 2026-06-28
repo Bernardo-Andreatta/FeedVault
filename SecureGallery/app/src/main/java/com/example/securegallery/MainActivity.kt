@@ -1,8 +1,10 @@
 package com.example.securegallery
 
+import android.app.Activity
 import android.net.Uri
 import android.os.Build
-import androidx.activity.ComponentActivity
+import android.view.WindowManager
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -44,6 +46,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Fingerprint
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.DesktopWindows
@@ -62,6 +66,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.text.TextStyle
@@ -87,7 +93,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -122,6 +132,8 @@ import com.example.securegallery.ui.components.DownloadQueueSheet
 import com.example.securegallery.ui.components.ClipsFeed
 import com.example.securegallery.ui.DesktopViewModel
 import com.example.securegallery.ui.components.DesktopScreen
+import com.example.securegallery.vault.VaultGate
+import com.example.securegallery.vault.enableVaultBiometric
 import com.example.securegallery.ui.components.CompactSearchBar
 import com.example.securegallery.ui.components.EmptyStateView
 import com.example.securegallery.ui.components.FilterBar
@@ -135,7 +147,7 @@ import com.example.securegallery.ui.components.TagEditorDialog
 
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import com.example.securegallery.ui.theme.SecureGalleryTheme
+import com.example.securegallery.ui.theme.FeedVaultTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -153,7 +165,7 @@ data class ClipFullscreenState(
     val startPosition: Long = 0L
 )
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private lateinit var folderPickerLauncher: ActivityResultLauncher<Uri?>
     private lateinit var filePickerLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var exportTagsLauncher: ActivityResultLauncher<String>
@@ -230,12 +242,12 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            SecureGalleryTheme {
+            FeedVaultTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     GalleryScreen(
                         onSelectFolder = { folderPickerLauncher.launch(null) },
                         onSelectFiles = { filePickerLauncher.launch(arrayOf("image/*", "video/*")) },
-                        onExportTags = { exportTagsLauncher.launch("secure_gallery_tags.json") }
+                        onExportTags = { exportTagsLauncher.launch("feedvault_tags.json") }
                     )
                 }
             }
@@ -303,6 +315,20 @@ fun GalleryScreen(
             }
         }
     )
+    val vaultPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        uris.forEach { uri ->
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            }
+        }
+        viewModel.importToVault(uris)
+    }
     val downloadItems by downloadQueueViewModel.items.collectAsState()
     var showDownloadSheet by remember { mutableStateOf(false) }
     var fabDismissed by remember { mutableStateOf(false) }
@@ -453,12 +479,39 @@ fun GalleryScreen(
                 viewModel.clearFilters()
                 viewModel.setSearchQuery("")
             }
+            uiState.vaultMode -> {
+                viewModel.vaultLock()
+                viewModel.setVaultMode(false)
+            }
             // else: already at Galeria Todos — swallow the back press
         }
     }
     // Higher priority: close drawer first if open
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
+    }
+
+    // Auto-lock the vault when the app leaves the foreground (e.g. screen off, recents).
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_STOP -> viewModel.onAppBackgrounded()
+                Lifecycle.Event.ON_START -> viewModel.onAppForegrounded()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // While in the vault, mark the window secure so vault media is excluded from the
+    // recent-apps snapshot and screenshots; cleared on exit.
+    LaunchedEffect(uiState.vaultMode) {
+        (context as? Activity)?.window?.let { window ->
+            if (uiState.vaultMode) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     LaunchedEffect(uiState.errorMessage) {
@@ -473,7 +526,7 @@ fun GalleryScreen(
         drawerContent = {
             ModalDrawerSheet(modifier = Modifier.width(280.dp)) {
                 Text(
-                    text = "Secure Gallery",
+                    text = "FeedVault",
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 20.dp)
                 )
@@ -671,6 +724,21 @@ fun GalleryScreen(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    IconButton(onClick = {
+                        if (uiState.vaultMode) {
+                            viewModel.vaultLock()
+                            viewModel.setVaultMode(false)
+                        } else {
+                            viewModel.setVaultMode(true)
+                        }
+                        scope.launch { drawerState.close() }
+                    }) {
+                        Icon(
+                            if (uiState.vaultMode) Icons.Default.LockOpen else Icons.Default.Lock,
+                            contentDescription = if (uiState.vaultMode) "Sair do Cofre" else "Cofre",
+                            tint = if (uiState.vaultMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
                     Box {
                         IconButton(onClick = { settingsMenuExpanded = true }) {
                             Icon(Icons.Default.Settings, contentDescription = "Configurações")
@@ -736,12 +804,26 @@ fun GalleryScreen(
                                 uiState.selectedPeople.isNotEmpty() -> uiState.selectedPeople.joinToString(", ")
                                 else -> null
                             }
-                            Text(
-                                text = if (personLabel != null) "$personLabel · $sectionName" else sectionName,
-                                style = MaterialTheme.typography.titleLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                            val base = if (personLabel != null) "$personLabel · $sectionName" else sectionName
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                if (uiState.vaultMode) {
+                                    Icon(
+                                        Icons.Default.Lock,
+                                        contentDescription = "Cofre",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                Text(
+                                    text = base,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         },
                         navigationIcon = {
                             IconButton(onClick = { scope.launch { drawerState.open() } }) {
@@ -752,6 +834,16 @@ fun GalleryScreen(
                             when (uiState.currentSection) {
                                 AppSection.DESKTOP -> {}
                                 else -> {
+                                    if (uiState.vaultMode) {
+                                        IconButton(onClick = { viewModel.markVaultPickerLaunch(); vaultPickerLauncher.launch(arrayOf("image/*", "video/*")) }) {
+                                            Icon(Icons.Default.Add, contentDescription = "Adicionar ao cofre", modifier = Modifier.size(18.dp))
+                                        }
+                                        if (!uiState.vaultBiometricEnabled) {
+                                            IconButton(onClick = { enableVaultBiometric(context, viewModel) }) {
+                                                Icon(Icons.Default.Fingerprint, contentDescription = "Ativar biometria", modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    }
                                     val isClips = uiState.currentSection == AppSection.CLIPS
                                     IconButton(onClick = { viewModel.toggleGridView() }) {
                                         Icon(
@@ -774,7 +866,7 @@ fun GalleryScreen(
                                         Icon(
                                             imageVector = if (favActive) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                             contentDescription = "Favoritos",
-                                            tint = if (favActive) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface,
+                                            tint = if (favActive) com.example.securegallery.ui.theme.FavoriteRose else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -1047,6 +1139,14 @@ fun GalleryScreen(
             }
         ) { padding ->
             when {
+                uiState.vaultMode && !uiState.vaultUnlocked -> {
+                    VaultGate(
+                        state = uiState,
+                        viewModel = viewModel,
+                        modifier = Modifier.fillMaxSize().padding(padding)
+                    )
+                }
+
                 uiState.currentSection == AppSection.DESKTOP -> {
                     DesktopScreen(
                         viewModel = desktopViewModel,
@@ -1218,6 +1318,15 @@ fun GalleryScreen(
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                 ) {
                                     Icon(Icons.Default.Person, contentDescription = "Pessoas", modifier = Modifier.size(18.dp))
+                                }
+                                if (uiState.vaultMode) {
+                                    Button(
+                                        onClick = { viewModel.restoreSelectedFromVault() },
+                                        enabled = uiState.selectedIds.isNotEmpty(),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Restore, contentDescription = "Restaurar à galeria", modifier = Modifier.size(18.dp))
+                                    }
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Button(
