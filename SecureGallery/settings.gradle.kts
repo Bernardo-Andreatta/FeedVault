@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "SecureGallery"
+rootProject.name = "FeedVault"
 include(":app")

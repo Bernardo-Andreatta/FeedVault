@@ -73,6 +73,9 @@ dependencies {
     // Material Icons Extended
     implementation("androidx.compose.material:material-icons-extended:1.5.4")
 
+    // Biometric unlock for the safe folder
+    implementation("androidx.biometric:biometric:1.1.0")
+
     // Video playback
     implementation("androidx.media3:media3-exoplayer:1.3.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.3.1")

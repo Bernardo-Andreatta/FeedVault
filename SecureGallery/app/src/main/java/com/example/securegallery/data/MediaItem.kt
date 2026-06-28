@@ -21,5 +21,12 @@ data class MediaItem(
     val isFavorite: Boolean = false,
     val aspectRatio: Float = 0f,
     val lastModified: Long = System.currentTimeMillis(),
-    val thumbnailFrameMs: Long = -1L
+    val thumbnailFrameMs: Long = -1L,
+    /**
+     * True for media stored encrypted in app-private storage (the "Cofre").
+     * Such items have [uri] of the form "vault://<storedName>"; the real bytes
+     * are resolved on demand via VaultSession. Non-encrypted items reference
+     * the system gallery (content:// / document URIs) as before.
+     */
+    val encrypted: Boolean = false
 )

@@ -8,6 +8,8 @@ import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
+import com.example.securegallery.vault.VaultManager
+import com.example.securegallery.vault.VaultSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -42,7 +44,68 @@ class MediaRepository(
 
     suspend fun deleteMediaItem(item: MediaItem) = mediaItemDao.deleteMediaItem(item)
 
+    /** Encrypts [uri] into the vault, deletes the original, and records a vault:// MediaItem. */
+    suspend fun importToVault(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Capture the original's mtime before importUri() deletes it, so we can purge
+            // the now-dead non-encrypted DB row (the "ghost") if the file was already in the gallery.
+            val originalModified = queryLastModified(uri)
+            val vi = VaultManager.importUri(context, uri)
+            val storedUri = VaultSession.uriFor(vi.storedFileName)
+            mediaItemDao.insertMediaItem(
+                MediaItem(
+                    uri = storedUri,
+                    fileName = vi.displayName,
+                    uriHash = storedUri.hashCode(),
+                    mediaType = vi.mediaType,
+                    mimeType = vi.mimeType,
+                    aspectRatio = vi.aspectRatio,
+                    lastModified = System.currentTimeMillis(),
+                    dateAdded = System.currentTimeMillis(),
+                    encrypted = true
+                )
+            )
+            // Drop the original's stale gallery entry immediately (no rescan needed).
+            mediaItemDao.deleteByUri(uri.toString())
+            if (originalModified > 0) {
+                mediaItemDao.findUnencryptedByNameModified(vi.displayName, originalModified)
+                    .forEach { mediaItemDao.deleteMediaItem(it) }
+            }
+            VaultSession.register(listOf(mediaItemDao.getMediaByUri(storedUri) ?: return@withContext true))
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("MediaRepository", "importToVault failed", e)
+            false
+        }
+    }
+
+    private fun queryLastModified(uri: Uri): Long = try {
+        context.contentResolver.query(
+            uri, arrayOf(DocumentsContract.Document.COLUMN_LAST_MODIFIED), null, null, null
+        )?.use { c -> if (c.moveToFirst()) c.getLong(0) else 0L } ?: 0L
+    } catch (e: Exception) { 0L }
+
+    /** Decrypts a vault item back to the system gallery and removes it from the vault. */
+    suspend fun restoreFromVault(item: MediaItem): Boolean = withContext(Dispatchers.IO) {
+        if (!item.encrypted) return@withContext false
+        val name = VaultSession.nameOf(item.uri)
+        val ok = VaultManager.restoreBlobToGallery(context, name, item.fileName, item.mediaType, item.mimeType)
+        if (ok) {
+            videoClipDao.getClipsForMediaOnce(item.id).forEach { videoClipDao.deleteClip(it) }
+            mediaItemDao.deleteMediaItem(item)
+            VaultSession.forget(name)
+        }
+        ok
+    }
+
     suspend fun deleteMediaFile(item: MediaItem) = withContext(Dispatchers.IO) {
+        if (item.encrypted) {
+            VaultManager.deleteBlobByName(context, VaultSession.nameOf(item.uri))
+            VaultSession.forget(VaultSession.nameOf(item.uri))
+            videoClipDao.getClipsForMediaOnce(item.id).forEach { videoClipDao.deleteClip(it) }
+            mediaItemDao.deleteMediaItem(item)
+            return@withContext
+        }
         val uri = Uri.parse(item.uri)
         try {
             if (DocumentsContract.isDocumentUri(context, uri)) {
