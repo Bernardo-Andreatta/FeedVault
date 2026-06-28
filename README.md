@@ -63,7 +63,7 @@ The Vault is an encrypted mirror of the gallery — same feed, grid, clips, favo
 
 ```bash
 git clone https://github.com/Bernardo-Andreatta/FeedVault.git
-cd FeedVault/SecureGallery
+cd FeedVault
 ./gradlew assembleRelease
 ```
 
