@@ -27,17 +27,15 @@
     *** *(...);
 }
 
-# Keep our application classes
--keep class com.bernardo.feedvault.** { *; }
--keepclasseswithmembers class com.bernardo.feedvault.** {
-    *** *(...);
-}
+# NOTE: intentionally NOT blanket-keeping com.bernardo.feedvault.** — that would keep the
+# desktop feature code in the play flavor. R8 must be free to strip the unreachable
+# desktop classes (folded out by BuildConfig.ENABLE_DESKTOP = false).
 
-# Keep data classes
--keep class com.bernardo.feedvault.data.** { *; }
+# Room entities are referenced by generated code; keep them and their members to be safe.
+-keep @androidx.room.Entity class com.bernardo.feedvault.data.** { *; }
 
-# Kotlin specific rules
--keepclasses class kotlin.** { *; }
+# Kotlin
+-dontwarn kotlin.**
 -keepclassmembers class ** {
     *** lambda*(...);
 }

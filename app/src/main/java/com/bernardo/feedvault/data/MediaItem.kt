@@ -28,5 +28,11 @@ data class MediaItem(
      * are resolved on demand via VaultSession. Non-encrypted items reference
      * the system gallery (content:// / document URIs) as before.
      */
-    val encrypted: Boolean = false
+    val encrypted: Boolean = false,
+    /**
+     * For encrypted items: the SAF tree uri of the folder the file was in before
+     * it was moved into the vault, so Restore can return it to the same place.
+     * Null when the origin is unknown (then Restore falls back to the system gallery).
+     */
+    val originFolderUri: String? = null
 )

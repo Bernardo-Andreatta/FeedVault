@@ -21,6 +21,7 @@ class App : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         com.bernardo.feedvault.vault.VaultSession.init(this)
+        com.bernardo.feedvault.ui.theme.ThemeController.load(this)
         staticImageLoader = ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)

@@ -52,6 +52,11 @@ class MediaRepository(
             val originalModified = queryLastModified(uri)
             val vi = VaultManager.importUri(context, uri)
             val storedUri = VaultSession.uriFor(vi.storedFileName)
+            // If the file was already in the gallery (a ghost row exists), remember its folder
+            // so Restore can put it back in the same place.
+            val ghost = if (originalModified > 0)
+                mediaItemDao.getMediaByFileNameAndModified(vi.displayName, originalModified) else null
+            val originFolder = ghost?.let { getSavedFolderUri()?.toString() }
             mediaItemDao.insertMediaItem(
                 MediaItem(
                     uri = storedUri,
@@ -62,7 +67,8 @@ class MediaRepository(
                     aspectRatio = vi.aspectRatio,
                     lastModified = System.currentTimeMillis(),
                     dateAdded = System.currentTimeMillis(),
-                    encrypted = true
+                    encrypted = true,
+                    originFolderUri = originFolder
                 )
             )
             // Drop the original's stale gallery entry immediately (no rescan needed).
@@ -85,17 +91,62 @@ class MediaRepository(
         )?.use { c -> if (c.moveToFirst()) c.getLong(0) else 0L } ?: 0L
     } catch (e: Exception) { 0L }
 
-    /** Decrypts a vault item back to the system gallery and removes it from the vault. */
+    /**
+     * Restores a vault item. If its origin folder is known and writable, it goes back there
+     * (and reappears in the gallery); otherwise it falls back to the system gallery (Pictures/Movies).
+     */
     suspend fun restoreFromVault(item: MediaItem): Boolean = withContext(Dispatchers.IO) {
         if (!item.encrypted) return@withContext false
         val name = VaultSession.nameOf(item.uri)
-        val ok = VaultManager.restoreBlobToGallery(context, name, item.fileName, item.mediaType, item.mimeType)
+        val origin = item.originFolderUri
+        val ok = if (origin != null) restoreToFolder(item, name, Uri.parse(origin))
+                 else VaultManager.restoreBlobToGallery(context, name, item.fileName, item.mediaType, item.mimeType)
         if (ok) {
             videoClipDao.getClipsForMediaOnce(item.id).forEach { videoClipDao.deleteClip(it) }
             mediaItemDao.deleteMediaItem(item)
             VaultSession.forget(name)
         }
         ok
+    }
+
+    /** Writes a decrypted blob back into [folderUri] via SAF and re-registers it in the gallery. */
+    private suspend fun restoreToFolder(item: MediaItem, storedName: String, folderUri: Uri): Boolean {
+        val folder = DocumentFile.fromTreeUri(context, folderUri)
+        if (folder == null || !folder.canWrite()) {
+            // Origin folder no longer accessible — fall back to the system gallery.
+            return VaultManager.restoreBlobToGallery(context, storedName, item.fileName, item.mediaType, item.mimeType)
+        }
+        val mime = item.mimeType.ifBlank { "application/octet-stream" }
+        val doc = folder.createFile(mime, item.fileName) ?: return false
+        val wrote = context.contentResolver.openOutputStream(doc.uri)?.use { out ->
+            VaultManager.decryptBlobToStream(context, storedName, out)
+        } ?: false
+        if (!wrote) {
+            runCatching { doc.delete() }
+            return false
+        }
+        // Normalize to a tree document uri so it matches what the folder scan produces.
+        val uriStr = runCatching {
+            val docId = DocumentsContract.getDocumentId(doc.uri)
+            DocumentsContract.buildDocumentUriUsingTree(folderUri, docId).toString()
+        }.getOrElse { doc.uri.toString() }
+        if (mediaItemDao.getMediaByUri(uriStr) == null) {
+            mediaItemDao.insertMediaItem(
+                MediaItem(
+                    uri = uriStr,
+                    fileName = item.fileName,
+                    uriHash = uriStr.hashCode(),
+                    mediaType = item.mediaType,
+                    mimeType = item.mimeType,
+                    aspectRatio = item.aspectRatio,
+                    lastModified = System.currentTimeMillis(),
+                    dateAdded = System.currentTimeMillis(),
+                    encrypted = false
+                )
+            )
+        }
+        VaultManager.deleteBlobByName(context, storedName)
+        return true
     }
 
     suspend fun deleteMediaFile(item: MediaItem) = withContext(Dispatchers.IO) {

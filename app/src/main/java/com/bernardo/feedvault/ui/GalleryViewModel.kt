@@ -733,6 +733,17 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
         }
     }
 
+    fun changeVaultPassword(current: String, new: String, onResult: (Boolean) -> Unit) {
+        if (new.length < 4) { setError("Use pelo menos 4 caracteres"); onResult(false); return }
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                VaultManager.changePassword(context, current.toCharArray(), new.toCharArray())
+            }
+            if (!ok) setError("Senha atual incorreta")
+            onResult(ok)
+        }
+    }
+
     fun vaultBiometricEncryptCipher(): Cipher? =
         runCatching { VaultManager.biometricEncryptCipher() }.getOrNull()
 

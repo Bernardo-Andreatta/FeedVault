@@ -18,15 +18,32 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.0"
     }
 
+    // "full" = personal build with the Desktop companion; "play" = Store build without it.
+    // ENABLE_DESKTOP is a compile-time constant, so R8 (release) folds the false branch
+    // in the play flavor and strips the unreachable desktop code from the shipped APK.
+    flavorDimensions += "distribution"
+    productFlavors {
+        create("full") {
+            dimension = "distribution"
+            buildConfigField("boolean", "ENABLE_DESKTOP", "true")
+        }
+        create("play") {
+            dimension = "distribution"
+            buildConfigField("boolean", "ENABLE_DESKTOP", "false")
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Required so R8 can strip the desktop code from the play flavor.
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

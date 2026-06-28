@@ -260,7 +260,13 @@ fun PeopleEditorDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Editar Pessoas", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Pessoas / Categorias",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
                 Row {
                     TextButton(onClick = onDismiss) { Text("Cancelar") }
                     Button(onClick = {
@@ -391,7 +397,7 @@ fun ManagePeopleDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gerenciar Pessoas") },
+        title = { Text("Pessoas / Categorias") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
