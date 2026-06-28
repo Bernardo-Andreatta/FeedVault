@@ -1,12 +1,19 @@
 package com.bernardo.feedvault.ui.theme
 
+import android.content.Context
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -134,12 +141,84 @@ private val FeedVaultTypography = Typography(
     )
 )
 
+// ── User-customizable theme (background + accent) ─────────────────────────────
+// Persisted choices applied on top of the dark scheme. Customization is dark-only;
+// backgrounds offered are all dark shades so light-on-dark text stays legible.
+object ThemeController {
+    private const val PREFS = "theme_prefs"
+    private const val K_BG = "background_argb"
+    private const val K_ACCENT = "accent_argb"
+
+    private val DefaultBackground = Ink
+    private val DefaultAccent = Brass
+
+    var background by mutableStateOf(DefaultBackground)
+        private set
+    var accent by mutableStateOf(DefaultAccent)
+        private set
+
+    /** Preset swatches surfaced in Settings (color to label). */
+    val backgroundPresets = listOf(
+        Ink to "Ink",
+        Color(0xFF000000) to "Preto",
+        Color(0xFF15171C) to "Carvão",
+        Color(0xFF1A2027) to "Ardósia",
+        Color(0xFF0C1320) to "Marinho",
+        Color(0xFF161118) to "Ameixa"
+    )
+    val accentPresets = listOf(
+        Brass to "Brass",
+        Steel to "Aço",
+        FavoriteRose to "Rosa",
+        Color(0xFF3FB984) to "Esmeralda",
+        Color(0xFF4FA3E3) to "Céu",
+        Color(0xFF9B7BE0) to "Violeta",
+        Color(0xFFE0902F) to "Âmbar",
+        Color(0xFFD9594C) to "Carmim"
+    )
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun load(context: Context) {
+        val p = prefs(context)
+        background = Color(p.getInt(K_BG, DefaultBackground.toArgb()))
+        accent = Color(p.getInt(K_ACCENT, DefaultAccent.toArgb()))
+    }
+
+    fun setBackground(context: Context, color: Color) {
+        background = color
+        prefs(context).edit().putInt(K_BG, color.toArgb()).apply()
+    }
+
+    fun setAccent(context: Context, color: Color) {
+        accent = color
+        prefs(context).edit().putInt(K_ACCENT, color.toArgb()).apply()
+    }
+}
+
 @Composable
 fun FeedVaultTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val accent = ThemeController.accent
+    val bg = ThemeController.background
+    val colorScheme = if (darkTheme) {
+        DarkColorScheme.copy(
+            primary = accent,
+            onPrimary = if (accent.luminance() > 0.5f) Color.Black else Color.White,
+            primaryContainer = lerp(bg, accent, 0.22f),
+            onPrimaryContainer = lerp(accent, Color.White, 0.6f),
+            background = bg,
+            surface = lerp(bg, Color.White, 0.05f),
+            surfaceVariant = lerp(bg, Color.White, 0.10f),
+            surfaceTint = accent,
+            inversePrimary = lerp(bg, accent, 0.30f)
+        )
+    } else {
+        LightColorScheme
+    }
 
     MaterialTheme(
         colorScheme = colorScheme,

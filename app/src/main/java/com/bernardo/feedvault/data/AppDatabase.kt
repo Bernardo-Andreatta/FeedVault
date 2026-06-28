@@ -81,7 +81,13 @@ private val MIGRATION_9_10 = object : Migration(9, 10) {
     }
 }
 
-@Database(entities = [MediaItem::class, VideoClip::class, VaultItem::class], version = 10)
+private val MIGRATION_10_11 = object : Migration(10, 11) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("ALTER TABLE media_items ADD COLUMN originFolderUri TEXT")
+    }
+}
+
+@Database(entities = [MediaItem::class, VideoClip::class, VaultItem::class], version = 11)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun mediaItemDao(): MediaItemDao
@@ -99,7 +105,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "secure_gallery_database"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .build()
                 INSTANCE = instance
                 instance

@@ -81,6 +81,27 @@ object VaultManager {
         runCatching { tempDir(context).listFiles()?.forEach { it.delete() } }
     }
 
+    /**
+     * Re-wraps the DEK under a new password after verifying [current]. The biometric
+     * wrapper is untouched (it wraps the same DEK). Returns false if [current] is wrong.
+     */
+    fun changePassword(context: Context, current: CharArray, new: CharArray): Boolean {
+        val p = prefs(context)
+        val salt = p.getString(K_SALT, null)?.let { unb64(it) } ?: return false
+        val blob = p.getString(K_PW_BLOB, null)?.let { unb64(it) } ?: return false
+        val dekBytes = try {
+            val curKek = VaultCrypto.deriveKey(current, salt)
+            VaultCrypto.aesGcmDecrypt(curKek, blob)
+        } catch (e: Exception) {
+            return false
+        }
+        val newSalt = VaultCrypto.randomBytes(16)
+        val newKek = VaultCrypto.deriveKey(new, newSalt)
+        val newBlob = VaultCrypto.aesGcmEncrypt(newKek, dekBytes)
+        p.edit().putString(K_SALT, b64(newSalt)).putString(K_PW_BLOB, b64(newBlob)).apply()
+        return true
+    }
+
     // ── Biometric enable / unlock ─────────────────────────────────────────────
 
     /** Authorised encrypt cipher to pass through BiometricPrompt before enabling. */
@@ -185,6 +206,17 @@ object VaultManager {
             }
             out
         }.getOrNull()
+    }
+
+    /** Decrypts a blob to an arbitrary output stream (e.g. a SAF document). */
+    fun decryptBlobToStream(context: Context, storedName: String, out: java.io.OutputStream): Boolean {
+        val key = dek ?: return false
+        return runCatching {
+            FileInputStream(blobFileByName(context, storedName)).use { input ->
+                VaultCrypto.decryptStream(key, input, out)
+            }
+            true
+        }.getOrElse { false }
     }
 
     fun deleteBlobByName(context: Context, storedName: String) {

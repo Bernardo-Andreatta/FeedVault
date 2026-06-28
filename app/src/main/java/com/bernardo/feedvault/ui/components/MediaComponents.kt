@@ -82,6 +82,7 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.Search
@@ -208,6 +209,7 @@ fun MediaFeed(
     isSelectionMode: Boolean = false,
     onToggleSelection: (Long) -> Unit = {},
     onDeleteMedia: (MediaItem) -> Unit = {},
+    onRestoreMedia: (MediaItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (isGridView) {
@@ -326,6 +328,7 @@ fun MediaFeed(
                         onFilterByTag = onFilterByTag,
                         onFilterByPerson = onFilterByPerson,
                         onDeleteMedia = { onDeleteMedia(item) },
+                        onRestore = { onRestoreMedia(item) },
                         availableHeight = feedHeight,
                         seekToken = seekTokens[item.uri]?.first ?: 0,
                         seekPositionMs = seekTokens[item.uri]?.second ?: 0L,
@@ -464,6 +467,7 @@ fun MediaPost(
     onFilterByTag: (String) -> Unit = {},
     onFilterByPerson: (String) -> Unit = {},
     onDeleteMedia: () -> Unit = {},
+    onRestore: () -> Unit = {},
     availableHeight: Dp = Dp.Unspecified,
     seekToken: Int = 0,
     seekPositionMs: Long = 0L,
@@ -475,6 +479,7 @@ fun MediaPost(
 ) {
     var showImageFullscreen by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showRestoreConfirm by remember { mutableStateOf(false) }
     var clipPlayRequest by remember(item.id) { mutableStateOf(0 to 0L) }
     var clipSeekOnlyRequest by remember(item.id) { mutableStateOf(0 to 0L) }
     var expandedClipId by remember { mutableStateOf<Long?>(null) }
@@ -840,6 +845,19 @@ fun MediaPost(
                             modifier = Modifier.size(20.dp)
                         )
                     }
+                    if (item.encrypted) {
+                        IconButton(
+                            onClick = { showRestoreConfirm = true },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Restore,
+                                contentDescription = "Restaurar à galeria",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
                     IconButton(
                         onClick = { showDeleteConfirm = true },
                         modifier = Modifier.size(30.dp)
@@ -864,6 +882,19 @@ fun MediaPost(
             fileName = item.fileName,
             onConfirm = onDeleteMedia,
             onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    if (showRestoreConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = { Text("Restaurar à galeria?") },
+            text = { Text("O arquivo será descriptografado, devolvido à galeria e removido do cofre.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restaurar") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancelar") }
+            }
         )
     }
 }
@@ -1533,7 +1564,12 @@ fun FullscreenVideoOverlay(
             } else {
                 FullscreenImagePage(
                     mediaItem = item,
+                    allAvailableTags = allAvailableTags,
+                    allAvailablePeople = allAvailablePeople,
                     onZoomChanged = { isZoomed = it },
+                    onToggleFavorite = { onToggleFavorite(item.id) },
+                    onUpdateTags = { tags -> onUpdateTags(item.id, tags) },
+                    onUpdatePeople = { people -> onUpdatePeople(item.id, people) },
                     onFilterByTag = { tag -> handleDismiss(); onFilterByTag(tag) },
                     onFilterByPerson = { person -> handleDismiss(); onFilterByPerson(person) },
                     onDeleteMedia = { onDeleteMedia(item); onDismiss() }
@@ -2361,27 +2397,40 @@ fun FullscreenVideoPage(
                             .align(Alignment.CenterHorizontally)
                     )
 
-                    // Pessoas section
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { showPeopleEditor = true }
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            "PESSOAS",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.White.copy(alpha = 0.45f)
-                        )
-                        Icon(
-                            Icons.Default.Edit,
-                            contentDescription = "Editar pessoas",
-                            tint = Color.White.copy(alpha = 0.45f),
-                            modifier = Modifier.size(14.dp)
-                        )
+                    // Pessoas / Categorias section
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showPeopleEditor = true }
+                                .padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "PESSOAS / CATEGORIAS",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.White.copy(alpha = 0.45f)
+                            )
+                            Icon(
+                                Icons.Default.Edit,
+                                contentDescription = "Editar pessoas / categorias",
+                                tint = Color.White.copy(alpha = 0.45f),
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                        val people = localPeople.filter { it.isNotBlank() }
+                        if (people.isEmpty()) {
+                            Text(
+                                "Nenhuma — toque para adicionar",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.25f),
+                                modifier = Modifier.clickable { showPeopleEditor = true }
+                            )
+                        } else {
+                            FullscreenTagChips(tags = people, onFilterByTag = onFilterByPerson)
+                        }
                     }
 
                     Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.07f)))
@@ -2719,18 +2768,39 @@ private fun FullscreenMediaPills(
 @OptIn(ExperimentalLayoutApi::class)
 private fun FullscreenImagePage(
     mediaItem: MediaItem,
+    allAvailableTags: List<String> = emptyList(),
+    allAvailablePeople: List<String> = emptyList(),
     onZoomChanged: (Boolean) -> Unit = {},
+    onToggleFavorite: () -> Unit = {},
+    onUpdateTags: (List<String>) -> Unit = {},
+    onUpdatePeople: (List<String>) -> Unit = {},
     onFilterByTag: (String) -> Unit = {},
     onFilterByPerson: (String) -> Unit = {},
     onDeleteMedia: () -> Unit = {}
 ) {
     var zoomScale by remember { mutableStateOf(1f) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showEditMenu by remember { mutableStateOf(false) }
+    var showTagEditor by remember { mutableStateOf(false) }
+    var showPeopleEditor by remember { mutableStateOf(false) }
+    var showControls by remember { mutableStateOf(true) }
+    var isFavorite by remember(mediaItem.id) { mutableStateOf(mediaItem.isFavorite) }
+    var localTags by remember(mediaItem.id) { mutableStateOf(mediaItem.tags) }
+    var localPeople by remember(mediaItem.id) { mutableStateOf(mediaItem.people) }
+
+    // Auto-hide controls after inactivity, like the video page. Stays up while a menu/dialog is open.
+    val anyMenuOpen = showEditMenu || showTagEditor || showPeopleEditor || showDeleteConfirm
+    LaunchedEffect(showControls, anyMenuOpen) {
+        if (showControls && !anyMenuOpen) {
+            delay(3000)
+            showControls = false
+        }
+    }
     var zoomOffset by remember { mutableStateOf(Offset.Zero) }
     var containerWidth by remember { mutableStateOf(0) }
     var containerHeight by remember { mutableStateOf(0) }
-    val tags = mediaItem.tags.filter { it.isNotBlank() }
-    val people = mediaItem.people.filter { it.isNotBlank() }
+    val tags = localTags.filter { it.isNotBlank() }
+    val people = localPeople.filter { it.isNotBlank() }
 
     Box(
         modifier = Modifier
@@ -2766,6 +2836,7 @@ private fun FullscreenImagePage(
             }
             .pointerInput(Unit) {
                 detectTapGestures(
+                    onTap = { showControls = !showControls },
                     onDoubleTap = { zoomScale = 1f; zoomOffset = Offset.Zero; onZoomChanged(false) }
                 )
             },
@@ -2783,7 +2854,7 @@ private fun FullscreenImagePage(
                 }
         )
 
-        if (tags.isNotEmpty() || people.isNotEmpty()) {
+        if (showControls && (tags.isNotEmpty() || people.isNotEmpty())) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -2800,35 +2871,94 @@ private fun FullscreenImagePage(
             }
         }
 
-        // Delete button — top-end, below the overlay counter (~12dp+text height ≈ 40dp)
-        Box(
+        // Left control cluster — edit / favorite / delete (shown for all file types)
+        if (showControls) {
+        Column(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 56.dp, end = 8.dp)
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.55f))
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) { showDeleteConfirm = true },
-            contentAlignment = Alignment.Center
+                .align(Alignment.TopStart)
+                .padding(top = 56.dp, start = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                imageVector = Icons.Default.Delete,
-                contentDescription = "Deletar",
-                tint = Color(0xFFEF9A9A),
-                modifier = Modifier.size(20.dp)
-            )
+            FsControlButton(Icons.Default.Edit, "Editar") { showEditMenu = true }
+            FsControlButton(
+                if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                "Favorito",
+                tint = if (isFavorite) FavoriteRose else Color.White
+            ) { isFavorite = !isFavorite; onToggleFavorite() }
+            FsControlButton(Icons.Default.Delete, "Deletar", tint = Color(0xFFEF9A9A)) { showDeleteConfirm = true }
+        }
+        }
+
+        if (showEditMenu) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 56.dp, start = 56.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Color.Black.copy(alpha = 0.9f))
+                    .padding(vertical = 4.dp)
+            ) {
+                Column {
+                    Text(
+                        "Editar tags", color = Color.White, style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .clickable { showEditMenu = false; showTagEditor = true }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                    Text(
+                        "Editar pessoas / categorias", color = Color.White, style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier
+                            .clickable { showEditMenu = false; showPeopleEditor = true }
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    )
+                }
+            }
         }
     }
 
+    if (showEditMenu) BackHandler { showEditMenu = false }
+
+    if (showTagEditor) {
+        TagEditorDialog(
+            currentTags = localTags,
+            allAvailableTags = allAvailableTags,
+            onConfirm = { t -> localTags = t; onUpdateTags(t); showTagEditor = false },
+            onDismiss = { showTagEditor = false }
+        )
+    }
+    if (showPeopleEditor) {
+        PeopleEditorDialog(
+            currentPeople = localPeople,
+            allAvailablePeople = allAvailablePeople,
+            onConfirm = { p -> localPeople = p; onUpdatePeople(p); showPeopleEditor = false },
+            onDismiss = { showPeopleEditor = false }
+        )
+    }
     if (showDeleteConfirm) {
         DeleteConfirmDialog(
             fileName = mediaItem.fileName,
             onConfirm = onDeleteMedia,
             onDismiss = { showDeleteConfirm = false }
         )
+    }
+}
+
+@Composable
+private fun FsControlButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    desc: String,
+    tint: Color = Color.White,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.55f))
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = desc, tint = tint, modifier = Modifier.size(20.dp))
     }
 }
 

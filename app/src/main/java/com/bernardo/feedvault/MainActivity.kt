@@ -120,6 +120,7 @@ import com.bernardo.feedvault.util.normalizeForSearch
 import com.bernardo.feedvault.ui.AppSection
 import com.bernardo.feedvault.ui.ClipSortOrder
 import com.bernardo.feedvault.ui.GalleryViewModel
+import com.bernardo.feedvault.ui.SettingsScreen
 import com.bernardo.feedvault.ui.MediaSortOrder
 
 import com.bernardo.feedvault.data.DesktopRepository
@@ -297,7 +298,9 @@ fun GalleryScreen(
             }
         }
     )
-    val desktopViewModel: DesktopViewModel = viewModel(
+    // Desktop is a build-flavor feature. ENABLE_DESKTOP is a compile-time constant, so in the
+    // play flavor R8 folds these branches away and strips the desktop classes from the APK.
+    val desktopViewModel: DesktopViewModel? = if (BuildConfig.ENABLE_DESKTOP) viewModel(
         key = "desktop",
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -305,8 +308,8 @@ fun GalleryScreen(
                 return DesktopViewModel(context) as T
             }
         }
-    )
-    val downloadQueueViewModel: DownloadQueueViewModel = viewModel(
+    ) else null
+    val downloadQueueViewModel: DownloadQueueViewModel? = if (BuildConfig.ENABLE_DESKTOP) viewModel(
         key = "downloadQueue",
         factory = object : androidx.lifecycle.ViewModelProvider.Factory {
             override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
@@ -314,7 +317,7 @@ fun GalleryScreen(
                 return DownloadQueueViewModel(context) as T
             }
         }
-    )
+    ) else null
     val vaultPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
@@ -329,7 +332,7 @@ fun GalleryScreen(
         }
         viewModel.importToVault(uris)
     }
-    val downloadItems by downloadQueueViewModel.items.collectAsState()
+    val downloadItems = if (BuildConfig.ENABLE_DESKTOP) downloadQueueViewModel!!.items.collectAsState().value else emptyList()
     var showDownloadSheet by remember { mutableStateOf(false) }
     var fabDismissed by remember { mutableStateOf(false) }
     val prevDownloadCount = remember { mutableStateOf(0) }
@@ -344,9 +347,11 @@ fun GalleryScreen(
     var showPeopleEditor by remember { mutableStateOf(false) }
     var showManageTags by remember { mutableStateOf(false) }
     var showManagePeople by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
     var showBatchTagEditor by remember { mutableStateOf(false) }
     var showBatchPeopleEditor by remember { mutableStateOf(false) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+    var showBatchRestoreConfirm by remember { mutableStateOf(false) }
     var fullscreenState by remember { mutableStateOf<FullscreenState?>(null) }
     var fullscreenClipState by remember { mutableStateOf<ClipFullscreenState?>(null) }
     val feedListState = rememberLazyListState()
@@ -354,7 +359,6 @@ fun GalleryScreen(
     val clipsListState = rememberLazyListState()
     var scrollRequest by remember { mutableStateOf(0 to null as String?) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
-    var settingsMenuExpanded by remember { mutableStateOf(false) }
     var draggedPersonIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
     val peopleItemHeights = remember { HashMap<Int, Int>() }
@@ -435,7 +439,7 @@ fun GalleryScreen(
     var pendingDesktopFiles by remember { mutableStateOf<List<com.bernardo.feedvault.data.DesktopFile>>(emptyList()) }
     var showUseDesktopFolderBulkDialog by remember { mutableStateOf(false) }
 
-    val desktopFolderLauncher = rememberLauncherForActivityResult(
+    val desktopFolderLauncher = if (BuildConfig.ENABLE_DESKTOP) rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
         if (uri == null) {
@@ -449,13 +453,13 @@ fun GalleryScreen(
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
         }
-        desktopViewModel.setDownloadFolderUri(uri.toString())
+        desktopViewModel!!.setDownloadFolderUri(uri.toString())
         val bulk = pendingDesktopFiles
         if (bulk.isNotEmpty()) {
             pendingDesktopFiles = emptyList()
             bulk.forEach { f ->
                 val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, f.id)
-                downloadQueueViewModel.enqueue(
+                downloadQueueViewModel!!.enqueue(
                     DownloadItem(name = f.name, source = "Desktop", url = url, fileName = f.name, folderUri = uri)
                 )
             }
@@ -463,11 +467,11 @@ fun GalleryScreen(
             val file = pendingDesktopFile ?: return@rememberLauncherForActivityResult
             pendingDesktopFile = null
             val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, file.id)
-            downloadQueueViewModel.enqueue(
+            downloadQueueViewModel!!.enqueue(
                 DownloadItem(name = file.name, source = "Desktop", url = url, fileName = file.name, folderUri = uri)
             )
         }
-    }
+    } else null
 
     // Catch-all: lowest priority — handles everything, swallows back when already at default
     BackHandler(enabled = true) {
@@ -556,16 +560,18 @@ fun GalleryScreen(
                     },
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
-                NavigationDrawerItem(
-                    icon = { Icon(Icons.Default.DesktopWindows, contentDescription = null) },
-                    label = { Text("Desktop") },
-                    selected = uiState.currentSection == AppSection.DESKTOP,
-                    onClick = {
-                        viewModel.setSection(AppSection.DESKTOP)
-                        scope.launch { drawerState.close() }
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp)
-                )
+                if (BuildConfig.ENABLE_DESKTOP) {
+                    NavigationDrawerItem(
+                        icon = { Icon(Icons.Default.DesktopWindows, contentDescription = null) },
+                        label = { Text("Desktop") },
+                        selected = uiState.currentSection == AppSection.DESKTOP,
+                        onClick = {
+                            viewModel.setSection(AppSection.DESKTOP)
+                            scope.launch { drawerState.close() }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp)
+                    )
+                }
 
                 Divider()
                 Spacer(modifier = Modifier.height(4.dp))
@@ -626,7 +632,7 @@ fun GalleryScreen(
                     if (uiState.allPeople.isNotEmpty()) {
                         item {
                             Text(
-                                text = "Pessoas",
+                                text = "Pessoas / Categorias",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -720,8 +726,8 @@ fun GalleryScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 4.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = {
@@ -739,40 +745,6 @@ fun GalleryScreen(
                             tint = if (uiState.vaultMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     }
-                    Box {
-                        IconButton(onClick = { settingsMenuExpanded = true }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Configurações")
-                        }
-                        DropdownMenu(
-                            expanded = settingsMenuExpanded,
-                            onDismissRequest = { settingsMenuExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Gerenciar Tags") },
-                                onClick = {
-                                    settingsMenuExpanded = false
-                                    showManageTags = true
-                                    scope.launch { drawerState.close() }
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Gerenciar Pessoas") },
-                                onClick = {
-                                    settingsMenuExpanded = false
-                                    showManagePeople = true
-                                    scope.launch { drawerState.close() }
-                                }
-                            )
-                        }
-                    }
-                    IconButton(onClick = {
-                        scope.launch { drawerState.close() }
-                        val saved = viewModel.getSavedExportUri()
-                        if (saved != null) viewModel.exportTags(saved)
-                        else onExportTags()
-                    }) {
-                        Icon(Icons.Default.Upload, contentDescription = "Exportar Tags")
-                    }
                     if (uiState.hasSavedFolder) {
                         IconButton(onClick = { viewModel.syncMedia(); scope.launch { drawerState.close() } }) {
                             Icon(Icons.Default.Refresh, contentDescription = "Sincronizar")
@@ -780,6 +752,11 @@ fun GalleryScreen(
                     }
                     IconButton(onClick = { scope.launch { drawerState.close() }; onSelectFolder() }) {
                         Icon(Icons.Default.Add, contentDescription = "Adicionar Pasta")
+                    }
+                    // Settings sits last on the right, separated from the rest.
+                    Spacer(modifier = Modifier.weight(1f))
+                    IconButton(onClick = { showSettings = true; scope.launch { drawerState.close() } }) {
+                        Icon(Icons.Default.Settings, contentDescription = "Configurações")
                     }
                 }
 
@@ -1147,14 +1124,14 @@ fun GalleryScreen(
                     )
                 }
 
-                uiState.currentSection == AppSection.DESKTOP -> {
+                BuildConfig.ENABLE_DESKTOP && uiState.currentSection == AppSection.DESKTOP -> {
                     DesktopScreen(
-                        viewModel = desktopViewModel,
+                        viewModel = desktopViewModel!!,
                         onSaveFile = { file ->
                             val existingFolder = desktopViewModel.getDownloadFolderUri()
                             if (existingFolder == null) {
                                 pendingDesktopFile = file
-                                desktopFolderLauncher.launch(null)
+                                desktopFolderLauncher!!.launch(null)
                             } else {
                                 pendingDesktopFile = file
                                 showUseDesktopFolderDialog = true
@@ -1164,7 +1141,7 @@ fun GalleryScreen(
                             val existingFolder = desktopViewModel.getDownloadFolderUri()
                             if (existingFolder == null) {
                                 pendingDesktopFiles = files
-                                desktopFolderLauncher.launch(null)
+                                desktopFolderLauncher!!.launch(null)
                             } else {
                                 pendingDesktopFiles = files
                                 showUseDesktopFolderBulkDialog = true
@@ -1283,6 +1260,7 @@ fun GalleryScreen(
                                 isSelectionMode = uiState.isSelectionMode,
                                 onToggleSelection = { id -> viewModel.toggleSelection(id) },
                                 onDeleteMedia = { item -> viewModel.deleteMediaItem(item) },
+                                onRestoreMedia = { item -> viewModel.restoreFromVault(item) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -1321,7 +1299,7 @@ fun GalleryScreen(
                                 }
                                 if (uiState.vaultMode) {
                                     Button(
-                                        onClick = { viewModel.restoreSelectedFromVault() },
+                                        onClick = { showBatchRestoreConfirm = true },
                                         enabled = uiState.selectedIds.isNotEmpty(),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                     ) {
@@ -1348,8 +1326,8 @@ fun GalleryScreen(
         }
 
         // Desktop download folder dialog
-        if (showUseDesktopFolderDialog && pendingDesktopFile != null) {
-            val folderName = desktopViewModel.getDownloadFolderName() ?: "pasta selecionada"
+        if (BuildConfig.ENABLE_DESKTOP && showUseDesktopFolderDialog && pendingDesktopFile != null) {
+            val folderName = desktopViewModel!!.getDownloadFolderName() ?: "pasta selecionada"
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showUseDesktopFolderDialog = false; pendingDesktopFile = null },
                 title = { Text("Salvar arquivo") },
@@ -1361,7 +1339,7 @@ fun GalleryScreen(
                         pendingDesktopFile = null
                         val folder = desktopViewModel.getDownloadFolderUri() ?: return@TextButton
                         val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, file.id)
-                        downloadQueueViewModel.enqueue(
+                        downloadQueueViewModel!!.enqueue(
                             DownloadItem(name = file.name, source = "Desktop", url = url, fileName = file.name, folderUri = folder)
                         )
                     }) { Text("Usar esta pasta") }
@@ -1369,15 +1347,15 @@ fun GalleryScreen(
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showUseDesktopFolderDialog = false
-                        desktopFolderLauncher.launch(null)
+                        desktopFolderLauncher!!.launch(null)
                     }) { Text("Escolher outra pasta") }
                 }
             )
         }
 
         // Desktop bulk download folder dialog
-        if (showUseDesktopFolderBulkDialog && pendingDesktopFiles.isNotEmpty()) {
-            val folderName = desktopViewModel.getDownloadFolderName() ?: "pasta selecionada"
+        if (BuildConfig.ENABLE_DESKTOP && showUseDesktopFolderBulkDialog && pendingDesktopFiles.isNotEmpty()) {
+            val folderName = desktopViewModel!!.getDownloadFolderName() ?: "pasta selecionada"
             val count = pendingDesktopFiles.size
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showUseDesktopFolderBulkDialog = false; pendingDesktopFiles = emptyList() },
@@ -1391,7 +1369,7 @@ fun GalleryScreen(
                         val folder = desktopViewModel.getDownloadFolderUri() ?: return@TextButton
                         files.forEach { f ->
                             val url = DesktopRepository.downloadUrl(desktopViewModel.uiState.value.baseUrl, f.id)
-                            downloadQueueViewModel.enqueue(
+                            downloadQueueViewModel!!.enqueue(
                                 DownloadItem(name = f.name, source = "Desktop", url = url, fileName = f.name, folderUri = folder)
                             )
                         }
@@ -1400,7 +1378,7 @@ fun GalleryScreen(
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showUseDesktopFolderBulkDialog = false
-                        desktopFolderLauncher.launch(null)
+                        desktopFolderLauncher!!.launch(null)
                     }) { Text("Escolher outra pasta") }
                 }
             )
@@ -1493,9 +1471,29 @@ fun GalleryScreen(
                 }
             )
         }
+
+        if (showBatchRestoreConfirm) {
+            val count = uiState.selectedIds.size
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showBatchRestoreConfirm = false },
+                title = { Text("Restaurar $count arquivo${if (count != 1) "s" else ""}?") },
+                text = { Text("Os arquivos serão descriptografados, devolvidos à galeria e removidos do cofre.") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showBatchRestoreConfirm = false
+                        viewModel.restoreSelectedFromVault()
+                    }) { Text("Restaurar") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showBatchRestoreConfirm = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
     }
 
-    if (showDownloadSheet) {
+    if (BuildConfig.ENABLE_DESKTOP && showDownloadSheet) {
         DownloadQueueSheet(
             items = downloadItems,
             onDismiss = {
@@ -1503,15 +1501,16 @@ fun GalleryScreen(
                 val hasActive = downloadItems.any {
                     it.status == DownloadStatus.QUEUED || it.status == DownloadStatus.DOWNLOADING
                 }
-                if (!hasActive) downloadQueueViewModel.dismissCompleted()
+                if (!hasActive) downloadQueueViewModel!!.dismissCompleted()
             },
-            onRetry = { downloadQueueViewModel.retry(it) },
-            onDismissItem = { downloadQueueViewModel.dismiss(it) },
-            onDismissCompleted = { downloadQueueViewModel.dismissCompleted() }
+            onRetry = { downloadQueueViewModel!!.retry(it) },
+            onDismissItem = { downloadQueueViewModel!!.dismiss(it) },
+            onDismissCompleted = { downloadQueueViewModel!!.dismissCompleted() }
         )
     }
 
-    if (!fabDismissed && fullscreenState == null && fullscreenClipState == null) {
+    if (BuildConfig.ENABLE_DESKTOP && !fabDismissed && downloadItems.isNotEmpty() &&
+        fullscreenState == null && fullscreenClipState == null) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1576,6 +1575,20 @@ fun GalleryScreen(
             onFilterByTag = { tag -> fullscreenState = null; viewModel.toggleTag(tag) },
             onFilterByPerson = { person -> fullscreenState = null; viewModel.togglePerson(person) },
             onDeleteMedia = { item -> viewModel.deleteMediaItem(item); fullscreenState = null }
+        )
+    }
+
+    if (showSettings) {
+        SettingsScreen(
+            state = uiState,
+            viewModel = viewModel,
+            onClose = { showSettings = false },
+            onManageTags = { showManageTags = true },
+            onManagePeople = { showManagePeople = true },
+            onExportTags = {
+                val saved = viewModel.getSavedExportUri()
+                if (saved != null) viewModel.exportTags(saved) else onExportTags()
+            }
         )
     }
     } // close outer Box
