@@ -71,7 +71,7 @@ Or open in Android Studio and run directly.
 
 ## Play Store
 
-[Download on Google Play](#) *(coming soon)*
+Coming Soon!
 
 ## License
 
