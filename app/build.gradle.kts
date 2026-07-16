@@ -130,9 +130,10 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.6.1")
     implementation("com.google.android.material:material:1.9.0")
 
-    // QR code scanning
-    implementation("com.journeyapps:zxing-android-embedded:4.3.0") { isTransitive = false }
-    implementation("com.google.zxing:core:3.5.3")
+    // QR code scanning — desktop-companion pairing, so full flavor only. Keeps the
+    // zxing classes and its CaptureActivity manifest entry out of the store bundle.
+    "fullImplementation"("com.journeyapps:zxing-android-embedded:4.3.0") { isTransitive = false }
+    "fullImplementation"("com.google.zxing:core:3.5.3")
 
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
