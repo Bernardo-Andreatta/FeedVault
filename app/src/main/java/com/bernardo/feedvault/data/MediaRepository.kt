@@ -45,18 +45,19 @@ class MediaRepository(
     suspend fun deleteMediaItem(item: MediaItem) = mediaItemDao.deleteMediaItem(item)
 
     /** Encrypts [uri] into the vault, deletes the original, and records a vault:// MediaItem. */
-    suspend fun importToVault(uri: Uri): Boolean = withContext(Dispatchers.IO) {
+    suspend fun importToVault(uri: Uri, originFolderUri: Uri? = null): Boolean = withContext(Dispatchers.IO) {
         try {
             // Capture the original's mtime before importUri() deletes it, so we can purge
             // the now-dead non-encrypted DB row (the "ghost") if the file was already in the gallery.
             val originalModified = queryLastModified(uri)
             val vi = VaultManager.importUri(context, uri)
             val storedUri = VaultSession.uriFor(vi.storedFileName)
-            // If the file was already in the gallery (a ghost row exists), remember its folder
-            // so Restore can put it back in the same place.
+            // Remember where the file came from so Restore can put it back. A folder import
+            // passes the picked folder explicitly; otherwise fall back to the saved gallery
+            // folder when the file was already in the gallery (a "ghost" row exists).
             val ghost = if (originalModified > 0)
                 mediaItemDao.getMediaByFileNameAndModified(vi.displayName, originalModified) else null
-            val originFolder = ghost?.let { getSavedFolderUri()?.toString() }
+            val originFolder = originFolderUri?.toString() ?: ghost?.let { getSavedFolderUri()?.toString() }
             mediaItemDao.insertMediaItem(
                 MediaItem(
                     uri = storedUri,
@@ -99,54 +100,45 @@ class MediaRepository(
         if (!item.encrypted) return@withContext false
         val name = VaultSession.nameOf(item.uri)
         val origin = item.originFolderUri
-        val ok = if (origin != null) restoreToFolder(item, name, Uri.parse(origin))
-                 else VaultManager.restoreBlobToGallery(context, name, item.fileName, item.mediaType, item.mimeType)
-        if (ok) {
-            videoClipDao.getClipsForMediaOnce(item.id).forEach { videoClipDao.deleteClip(it) }
-            mediaItemDao.deleteMediaItem(item)
+        val newUri = if (origin != null) restoreToFolder(item, name, Uri.parse(origin))
+                     else VaultManager.restoreBlobToGallery(context, name, item.fileName, item.mediaType, item.mimeType)
+        if (newUri != null) {
+            // Update the SAME row in place: keeps the id (so video clips stay linked) and all
+            // metadata — tags, people, notes, favorite — across the move back to the gallery.
+            val restored = item.copy(
+                uri = newUri,
+                uriHash = newUri.hashCode(),
+                encrypted = false,
+                originFolderUri = null
+            )
+            mediaItemDao.updateMediaItem(restored)
+            VaultManager.deleteBlobByName(context, name)
             VaultSession.forget(name)
-        }
-        ok
+            true
+        } else false
     }
 
-    /** Writes a decrypted blob back into [folderUri] via SAF and re-registers it in the gallery. */
-    private suspend fun restoreToFolder(item: MediaItem, storedName: String, folderUri: Uri): Boolean {
+    /** Writes a vault blob back into [folderUri] via SAF. Returns the new gallery uri, or null. */
+    private suspend fun restoreToFolder(item: MediaItem, storedName: String, folderUri: Uri): String? {
         val folder = DocumentFile.fromTreeUri(context, folderUri)
         if (folder == null || !folder.canWrite()) {
             // Origin folder no longer accessible — fall back to the system gallery.
             return VaultManager.restoreBlobToGallery(context, storedName, item.fileName, item.mediaType, item.mimeType)
         }
         val mime = item.mimeType.ifBlank { "application/octet-stream" }
-        val doc = folder.createFile(mime, item.fileName) ?: return false
+        val doc = folder.createFile(mime, item.fileName) ?: return null
         val wrote = context.contentResolver.openOutputStream(doc.uri)?.use { out ->
             VaultManager.decryptBlobToStream(context, storedName, out)
         } ?: false
         if (!wrote) {
             runCatching { doc.delete() }
-            return false
+            return null
         }
         // Normalize to a tree document uri so it matches what the folder scan produces.
-        val uriStr = runCatching {
+        return runCatching {
             val docId = DocumentsContract.getDocumentId(doc.uri)
             DocumentsContract.buildDocumentUriUsingTree(folderUri, docId).toString()
         }.getOrElse { doc.uri.toString() }
-        if (mediaItemDao.getMediaByUri(uriStr) == null) {
-            mediaItemDao.insertMediaItem(
-                MediaItem(
-                    uri = uriStr,
-                    fileName = item.fileName,
-                    uriHash = uriStr.hashCode(),
-                    mediaType = item.mediaType,
-                    mimeType = item.mimeType,
-                    aspectRatio = item.aspectRatio,
-                    lastModified = System.currentTimeMillis(),
-                    dateAdded = System.currentTimeMillis(),
-                    encrypted = false
-                )
-            )
-        }
-        VaultManager.deleteBlobByName(context, storedName)
-        return true
     }
 
     suspend fun deleteMediaFile(item: MediaItem) = withContext(Dispatchers.IO) {
@@ -261,6 +253,36 @@ class MediaRepository(
                             )
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /** Walks a SAF tree and returns the document URIs of every image/video it contains. */
+    suspend fun listMediaUrisInFolder(folderUri: Uri): List<Uri> = withContext(Dispatchers.IO) {
+        val rootDocId = DocumentsContract.getTreeDocumentId(folderUri)
+        val result = mutableListOf<Uri>()
+        collectMediaUris(folderUri, rootDocId, result)
+        result
+    }
+
+    private fun collectMediaUris(treeUri: Uri, docId: String, out: MutableList<Uri>) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, docId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+        context.contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            val idIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val mimeIdx = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            while (cursor.moveToNext()) {
+                val childDocId = cursor.getString(idIdx)
+                val mime = cursor.getString(mimeIdx)
+                when {
+                    mime == DocumentsContract.Document.MIME_TYPE_DIR ->
+                        collectMediaUris(treeUri, childDocId, out)
+                    mime?.startsWith("image/") == true || mime?.startsWith("video/") == true ->
+                        out.add(DocumentsContract.buildDocumentUriUsingTree(treeUri, childDocId))
                 }
             }
         }
@@ -452,6 +474,98 @@ class MediaRepository(
     fun getSavedFolderUri(): Uri? {
         val uriStr = prefs.getString("folder_uri", null) ?: return null
         return Uri.parse(uriStr)
+    }
+
+    /**
+     * Adds every image/video the system Downloads folder via MediaStore. Android blocks
+     * granting the Download folder through the SAF tree picker, so we read it through the
+     * media collections instead (needs READ_MEDIA_IMAGES/VIDEO). Returns how many were added.
+     */
+    suspend fun addDownloadsMedia(): Int = withContext(Dispatchers.IO) {
+        val collections = listOf(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI to "image",
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI to "video"
+        )
+        val useRelPath = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        val selection = if (useRelPath) "${MediaStore.MediaColumns.RELATIVE_PATH} LIKE ?"
+                        else "${MediaStore.MediaColumns.DATA} LIKE ?"
+        val args = if (useRelPath) arrayOf("%Download/%") else arrayOf("%/Download/%")
+        val proj = arrayOf(
+            MediaStore.MediaColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.DATE_MODIFIED
+        )
+        var added = 0
+        for ((collection, type) in collections) {
+            // Each collection needs its own permission (images vs video); a denied one must not
+            // abort the other, so isolate failures per collection.
+            runCatching {
+            context.contentResolver.query(collection, proj, selection, args, null)?.use { c ->
+                val idIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                val nameIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+                val mimeIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+                val modIdx = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED)
+                while (c.moveToNext()) {
+                    val uri = ContentUris.withAppendedId(collection, c.getLong(idIdx))
+                    val uriStr = uri.toString()
+                    if (mediaItemDao.getMediaByUri(uriStr) != null) continue
+                    val name = c.getString(nameIdx) ?: "media"
+                    val mime = c.getString(mimeIdx) ?: if (type == "video") "video/*" else "image/*"
+                    mediaItemDao.insertMediaItem(
+                        MediaItem(
+                            uri = uriStr,
+                            fileName = name,
+                            uriHash = uriStr.hashCode(),
+                            mediaType = type,
+                            mimeType = mime,
+                            aspectRatio = if (type == "video") computeVideoAspectRatio(uri) else 0f,
+                            lastModified = c.getLong(modIdx) * 1000L,
+                            dateAdded = System.currentTimeMillis()
+                        )
+                    )
+                    added++
+                }
+            }
+            }
+        }
+        added
+    }
+
+    /**
+     * Moves a gallery [item] into the vault, remembering its source folder so Restore can
+     * return it to the exact same place. The file must already be in the gallery (a real
+     * SAF uri); nothing leaves the app, so there is no picker and no risk of the original
+     * being lost to a backgrounded-process kill.
+     */
+    suspend fun lockToVault(item: MediaItem): Boolean = withContext(Dispatchers.IO) {
+        if (item.encrypted) return@withContext false
+        try {
+            // Items scanned from the saved folder tree carry its uri as a prefix; that tree is
+            // writable (persisted permission), so Restore can put the file back into it.
+            val savedFolder = getSavedFolderUri()
+            val origin = savedFolder?.takeIf { item.uri.startsWith("$it/document/") }
+            // Move the bytes into the vault (verified copy, then original deleted).
+            val vi = VaultManager.importUri(context, Uri.parse(item.uri))
+            val storedUri = VaultSession.uriFor(vi.storedFileName)
+            // Update the SAME row in place: keeps the id (so video clips stay linked) and all
+            // metadata — tags, people, notes, favorite, thumbnail frame — across the move.
+            val moved = item.copy(
+                uri = storedUri,
+                uriHash = storedUri.hashCode(),
+                mimeType = vi.mimeType,
+                mediaType = vi.mediaType,
+                aspectRatio = if (vi.aspectRatio > 0f) vi.aspectRatio else item.aspectRatio,
+                encrypted = true,
+                originFolderUri = origin?.toString()
+            )
+            mediaItemDao.updateMediaItem(moved)
+            VaultSession.register(listOf(moved))
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("MediaRepository", "lockToVault failed", e)
+            false
+        }
     }
 
     suspend fun saveMediaFromUrl(downloadUrl: String, fileName: String, targetFolderUri: Uri, tags: List<String> = emptyList(), people: List<String> = emptyList(), onProgress: ((Float) -> Unit)? = null): Boolean = withContext(Dispatchers.IO) {

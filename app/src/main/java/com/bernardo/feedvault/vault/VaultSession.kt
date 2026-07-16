@@ -7,13 +7,15 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Bridges the unified gallery to encrypted storage. Encrypted [MediaItem]s carry
- * a stable "vault://<storedName>" uri; everywhere the app turns a media uri into
- * a real [Uri] for Coil / ExoPlayer / MediaMetadataRetriever it calls
- * [resolve], which returns a decrypted temp-file uri while the vault is unlocked.
+ * Bridges the unified gallery to the safe folder. Vault [MediaItem]s carry a stable
+ * "vault://<storedName>" uri; everywhere the app turns a media uri into a real [Uri]
+ * for Coil / ExoPlayer / MediaMetadataRetriever it calls [resolve].
  *
- * On unlock the whole set is decrypted in the background ([decryptAll]) so
- * [resolve] is a cheap map lookup; on lock the temp files are wiped ([clear]).
+ * Files in the vault are stored unencrypted in app-internal storage (filesDir/vault),
+ * so [resolve] is a plain file-uri lookup — no decryption, no temp files. Internal
+ * storage is private to the app, hidden from other apps and from a PC over USB/MTP,
+ * and encrypted at rest by the OS while the device is locked. Access is gated by the
+ * vault password / biometric in the UI.
  */
 object VaultSession {
 
@@ -21,7 +23,6 @@ object VaultSession {
 
     private lateinit var appContext: Context
     private val mimeByName = ConcurrentHashMap<String, String>()
-    private val tempByName = ConcurrentHashMap<String, File>()
 
     fun init(context: Context) { appContext = context.applicationContext }
 
@@ -36,34 +37,22 @@ object VaultSession {
         items.forEach { if (it.encrypted) mimeByName[nameOf(it.uri)] = it.mimeType }
     }
 
+    /** Maps a vault:// uri to the file:// uri of its stored blob, or returns it unchanged. */
     fun resolve(uriString: String): Uri {
         if (!isVault(uriString)) return Uri.parse(uriString)
         if (!::appContext.isInitialized) return Uri.parse(uriString)
         val name = nameOf(uriString)
-        val file = tempByName[name] ?: run {
-            val mime = mimeByName[name] ?: return Uri.parse(uriString)
-            VaultManager.decryptBlobToTempSync(appContext, name, mime)?.also { tempByName[name] = it }
-        }
+        val mime = mimeByName[name] ?: ""
+        val file: File? = VaultManager.decryptBlobToTempSync(appContext, name, mime)
         return if (file != null) Uri.fromFile(file) else Uri.parse(uriString)
     }
 
-    /** Eagerly decrypt all registered blobs so playback never blocks on the main thread. */
-    suspend fun decryptAll() {
-        if (!::appContext.isInitialized) return
-        mimeByName.entries.toList().forEach { (name, mime) ->
-            if (!tempByName.containsKey(name)) {
-                VaultManager.decryptBlobToTempSync(appContext, name, mime)?.let { tempByName[name] = it }
-            }
-        }
-    }
-
     fun forget(storedName: String) {
-        tempByName.remove(storedName)?.let { runCatching { it.delete() } }
         mimeByName.remove(storedName)
     }
 
     fun clear() {
-        tempByName.values.forEach { runCatching { it.delete() } }
-        tempByName.clear()
+        // Vault blobs are permanent files, not decrypted temporaries — nothing to wipe here.
+        // Locking just drops the in-memory key (see VaultManager.lock); files stay in place.
     }
 }

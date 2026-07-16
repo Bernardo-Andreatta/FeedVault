@@ -2,13 +2,9 @@ package com.bernardo.feedvault.vault
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
-import java.io.InputStream
-import java.io.OutputStream
 import java.security.KeyStore
 import java.security.SecureRandom
 import javax.crypto.Cipher
-import javax.crypto.CipherInputStream
-import javax.crypto.CipherOutputStream
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
@@ -24,9 +20,9 @@ import javax.crypto.spec.SecretKeySpec
  *  - The DEK is itself wrapped by a password-derived key (PBKDF2) and,
  *    optionally, by a biometric-gated Android Keystore key. Either wrapper can
  *    unwrap the DEK; the password is always the recovery path.
- *  - Files are encrypted with AES-GCM streaming over the raw bytes, so a
- *    decrypted file is byte-identical to the original — no re-encoding, no
- *    quality loss, works for photos, videos and GIFs alike.
+ *  - Media files are encrypted with chunked AES-GCM (see [encryptStream]) over
+ *    the raw bytes, so a decrypted file is byte-identical to the original — no
+ *    re-encoding, no quality loss, works for photos, videos and GIFs alike.
  */
 object VaultCrypto {
 
@@ -76,34 +72,6 @@ object VaultCrypto {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
         return cipher.doFinal(ct)
-    }
-
-    // ── File streaming (used for the media bytes themselves) ──────────────────
-
-    /** Encrypts [input] into [output]. Layout on disk: iv (12 bytes) || GCM ciphertext. */
-    fun encryptStream(dek: SecretKey, input: InputStream, output: OutputStream) {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, dek)
-        output.write(cipher.iv)
-        CipherOutputStream(output, cipher).use { cos ->
-            input.copyTo(cos, 64 * 1024)
-        }
-    }
-
-    /** Decrypts an [input] produced by [encryptStream] into [output]. */
-    fun decryptStream(dek: SecretKey, input: InputStream, output: OutputStream) {
-        val iv = ByteArray(GCM_IV_BYTES)
-        var read = 0
-        while (read < GCM_IV_BYTES) {
-            val r = input.read(iv, read, GCM_IV_BYTES - read)
-            if (r < 0) throw IllegalStateException("Truncated vault file")
-            read += r
-        }
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, dek, GCMParameterSpec(GCM_TAG_BITS, iv))
-        CipherInputStream(input, cipher).use { cis ->
-            cis.copyTo(output, 64 * 1024)
-        }
     }
 
     // ── Biometric-gated keystore key ──────────────────────────────────────────

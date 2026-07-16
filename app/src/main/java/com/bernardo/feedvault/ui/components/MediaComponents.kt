@@ -82,6 +82,7 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -151,6 +152,7 @@ import coil.compose.AsyncImage
 import coil.decode.VideoFrameDecoder
 import coil.imageLoader
 import coil.request.ImageRequest
+import com.bernardo.feedvault.ui.PlaybackSession
 import com.bernardo.feedvault.vault.VaultSession
 import com.bernardo.feedvault.ui.theme.FavoriteRose
 import com.bernardo.feedvault.data.MediaItem
@@ -210,6 +212,7 @@ fun MediaFeed(
     onToggleSelection: (Long) -> Unit = {},
     onDeleteMedia: (MediaItem) -> Unit = {},
     onRestoreMedia: (MediaItem) -> Unit = {},
+    onLockMedia: (MediaItem) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (isGridView) {
@@ -226,8 +229,6 @@ fun MediaFeed(
                     // Detect down using Main pass (default) — grid scroll tracking starts in parallel
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val downPos = down.position
-                    val downId = findItemIdAt(gridState, downPos)
-                    val downItem = if (downId != null) items.firstOrNull { it.id == downId } else null
 
                     // Use Initial pass to classify gesture before grid consumes events
                     val gestureType = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
@@ -241,6 +242,14 @@ fun MediaFeed(
                         }
                         @Suppress("UNREACHABLE_CODE") "TAP"
                     }
+
+                    // Resolve the pressed item only AFTER the gesture is classified. At down
+                    // time the grid can still be flinging/settling, and layoutInfo lags the
+                    // rendered frame — hit-testing then opens a neighboring tile ("wrong file
+                    // in fullscreen"). By classification time (release / long-press timeout)
+                    // the down has stopped the scroll and layoutInfo matches what's on screen.
+                    val downId = findItemIdAt(gridState, downPos)
+                    val downItem = if (downId != null) items.firstOrNull { it.id == downId } else null
 
                     when (gestureType) {
                         "TAP" -> {
@@ -329,6 +338,7 @@ fun MediaFeed(
                         onFilterByPerson = onFilterByPerson,
                         onDeleteMedia = { onDeleteMedia(item) },
                         onRestore = { onRestoreMedia(item) },
+                        onLock = { onLockMedia(item) },
                         availableHeight = feedHeight,
                         seekToken = seekTokens[item.uri]?.first ?: 0,
                         seekPositionMs = seekTokens[item.uri]?.second ?: 0L,
@@ -468,6 +478,7 @@ fun MediaPost(
     onFilterByPerson: (String) -> Unit = {},
     onDeleteMedia: () -> Unit = {},
     onRestore: () -> Unit = {},
+    onLock: () -> Unit = {},
     availableHeight: Dp = Dp.Unspecified,
     seekToken: Int = 0,
     seekPositionMs: Long = 0L,
@@ -480,6 +491,7 @@ fun MediaPost(
     var showImageFullscreen by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showRestoreConfirm by remember { mutableStateOf(false) }
+    var showLockConfirm by remember { mutableStateOf(false) }
     var clipPlayRequest by remember(item.id) { mutableStateOf(0 to 0L) }
     var clipSeekOnlyRequest by remember(item.id) { mutableStateOf(0 to 0L) }
     var expandedClipId by remember { mutableStateOf<Long?>(null) }
@@ -857,6 +869,18 @@ fun MediaPost(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
+                    } else {
+                        IconButton(
+                            onClick = { showLockConfirm = true },
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = "Mover para o cofre",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
                     IconButton(
                         onClick = { showDeleteConfirm = true },
@@ -888,12 +912,25 @@ fun MediaPost(
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showRestoreConfirm = false },
             title = { Text("Restaurar à galeria?") },
-            text = { Text("O arquivo será descriptografado, devolvido à galeria e removido do cofre.") },
+            text = { Text("O arquivo será devolvido à pasta original na galeria e removido do cofre.") },
             confirmButton = {
                 androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restaurar") }
             },
             dismissButton = {
                 androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancelar") }
+            }
+        )
+    }
+    if (showLockConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLockConfirm = false },
+            title = { Text("Mover para o cofre?") },
+            text = { Text("O arquivo sai da galeria e fica guardado no app, protegido por senha. Use Restaurar para devolvê-lo ao mesmo lugar.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Mover ao cofre") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancelar") }
             }
         )
     }
@@ -922,7 +959,6 @@ fun VideoPlayer(
     var isPlaying by remember(uri) { mutableStateOf(false) }
     var isBuffering by remember(uri) { mutableStateOf(false) }
     var showControls by remember(uri) { mutableStateOf(true) }
-    var isMuted by remember(uri) { mutableStateOf(true) }
     var hideTimer by remember(uri) { mutableStateOf(0) }
     var currentPosition by remember(uri) { mutableStateOf(0L) }
     var duration by remember(uri) { mutableStateOf(0L) }
@@ -934,6 +970,10 @@ fun VideoPlayer(
     var itemVisible by remember { mutableStateOf(true) }
     val exoPlayerRef = remember(uri) { mutableStateOf<ExoPlayer?>(null) }
     val exoPlayer = exoPlayerRef.value
+    // App-wide mute: keep this player in sync when the toggle is flipped anywhere.
+    LaunchedEffect(PlaybackSession.muted, exoPlayer) {
+        exoPlayer?.volume = if (PlaybackSession.muted) 0f else 1f
+    }
 
     // Int counter key guarantees re-run on every reveal; hides 3s later if still playing
     LaunchedEffect(hideTimer) {
@@ -1037,7 +1077,7 @@ fun VideoPlayer(
                 prepare()
                 if (seekMs > 0) seekTo(seekMs)
                 playWhenReady = true
-                volume = 0f
+                volume = if (PlaybackSession.muted) 0f else 1f
             }
             newPlayer.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -1107,7 +1147,7 @@ fun VideoPlayer(
                 prepare()
                 if (seekMs > 0) seekTo(seekMs)
                 playWhenReady = true
-                volume = 0f
+                volume = if (PlaybackSession.muted) 0f else 1f
             }
             newPlayer.addListener(object : Player.Listener {
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -1390,7 +1430,7 @@ fun VideoPlayer(
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() }
-                ) { onFullscreenRequested(exoPlayer?.currentPosition ?: 0L, if (exoPlayer != null) isPlaying else true, isMuted) },
+                ) { onFullscreenRequested(exoPlayer?.currentPosition ?: 0L, if (exoPlayer != null) isPlaying else true, PlaybackSession.muted) },
             contentAlignment = Alignment.Center
         ) {
             Icon(Icons.Default.Fullscreen, contentDescription = "Tela cheia", tint = Color.White, modifier = Modifier.size(16.dp))
@@ -1408,14 +1448,14 @@ fun VideoPlayer(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
                     ) {
-                        isMuted = !isMuted
-                        exoPlayerRef.value?.volume = if (isMuted) 0f else 1f
+                        PlaybackSession.muted = !PlaybackSession.muted
+                        exoPlayerRef.value?.volume = if (PlaybackSession.muted) 0f else 1f
                     },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                    contentDescription = if (isMuted) "Ativar som" else "Desativar som",
+                    imageVector = if (PlaybackSession.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                    contentDescription = if (PlaybackSession.muted) "Ativar som" else "Desativar som",
                     tint = Color.White,
                     modifier = Modifier.size(14.dp)
                 )
@@ -1447,7 +1487,9 @@ fun FullscreenVideoOverlay(
     onReturnedToEmbed: (String) -> Unit = {},
     onFilterByTag: (String) -> Unit = {},
     onFilterByPerson: (String) -> Unit = {},
-    onDeleteMedia: (MediaItem) -> Unit = {}
+    onDeleteMedia: (MediaItem) -> Unit = {},
+    onLockMedia: (MediaItem) -> Unit = {},
+    onRestoreMedia: (MediaItem) -> Unit = {}
 ) {
     if (items.isEmpty()) { onDismiss(); return }
 
@@ -1559,7 +1601,9 @@ fun FullscreenVideoOverlay(
                     onPlayStateChanged = { playing -> if (page == pagerState.currentPage) isCurrentPagePlaying = playing },
                     onFilterByTag = { tag -> handleDismiss(); onFilterByTag(tag) },
                     onFilterByPerson = { person -> handleDismiss(); onFilterByPerson(person) },
-                    onDeleteMedia = { onDeleteMedia(item); onDismiss() }
+                    onDeleteMedia = { onDeleteMedia(item); onDismiss() },
+                    onLock = { onLockMedia(item); onDismiss() },
+                    onRestore = { onRestoreMedia(item); onDismiss() }
                 )
             } else {
                 FullscreenImagePage(
@@ -1572,7 +1616,9 @@ fun FullscreenVideoOverlay(
                     onUpdatePeople = { people -> onUpdatePeople(item.id, people) },
                     onFilterByTag = { tag -> handleDismiss(); onFilterByTag(tag) },
                     onFilterByPerson = { person -> handleDismiss(); onFilterByPerson(person) },
-                    onDeleteMedia = { onDeleteMedia(item); onDismiss() }
+                    onDeleteMedia = { onDeleteMedia(item); onDismiss() },
+                    onLock = { onLockMedia(item); onDismiss() },
+                    onRestore = { onRestoreMedia(item); onDismiss() }
                 )
             }
         }
@@ -1626,13 +1672,14 @@ fun FullscreenVideoPage(
     onPlayStateChanged: (Boolean) -> Unit = {},
     onFilterByTag: (String) -> Unit = {},
     onFilterByPerson: (String) -> Unit = {},
-    onDeleteMedia: () -> Unit = {}
+    onDeleteMedia: () -> Unit = {},
+    onLock: () -> Unit = {},
+    onRestore: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var isPlaying by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(false) }
-    var isMuted by remember { mutableStateOf(startMuted) }
     var currentPosition by remember { mutableStateOf(startPosition) }
     var duration by remember { mutableStateOf(0L) }
     var isUserScrubbing by remember { mutableStateOf(false) }
@@ -1650,6 +1697,8 @@ fun FullscreenVideoPage(
     var clipStart by remember { mutableStateOf<Long?>(null) }
     var clipEnd by remember { mutableStateOf<Long?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showLockConfirm by remember { mutableStateOf(false) }
+    var showRestoreConfirm by remember { mutableStateOf(false) }
     var pendingThumbnailMs by remember { mutableStateOf<Long?>(null) }
     var hasFirstActivated by remember { mutableStateOf(false) }
     var zoomScale by remember { mutableStateOf(1f) }
@@ -1682,10 +1731,15 @@ fun FullscreenVideoPage(
                 setMediaItem(Media3Item.fromUri(VaultSession.resolve(mediaItem.uri)))
                 repeatMode = Player.REPEAT_MODE_ONE
                 playWhenReady = false
-                volume = if (startMuted) 0f else 1f
+                volume = if (PlaybackSession.muted) 0f else 1f
                 // prepare() is called in LaunchedEffect(isActive) so adjacent pager pages
                 // don't allocate decoder buffers simultaneously (→ OOM on 4K video).
             }
+    }
+
+    // App-wide mute: keep this player in sync when the toggle is flipped anywhere.
+    LaunchedEffect(PlaybackSession.muted) {
+        exoPlayer.volume = if (PlaybackSession.muted) 0f else 1f
     }
 
     // Listen for playback state changes
@@ -2065,14 +2119,14 @@ fun FullscreenVideoPage(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
                         ) {
-                            isMuted = !isMuted
-                            exoPlayer.volume = if (isMuted) 0f else 1f
+                            PlaybackSession.muted = !PlaybackSession.muted
+                            exoPlayer.volume = if (PlaybackSession.muted) 0f else 1f
                         },
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isMuted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                        contentDescription = if (isMuted) "Ativar som" else "Desativar som",
+                        imageVector = if (PlaybackSession.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                        contentDescription = if (PlaybackSession.muted) "Ativar som" else "Desativar som",
                         tint = Color.White,
                         modifier = Modifier.size(22.dp)
                     )
@@ -2318,6 +2372,28 @@ fun FullscreenVideoPage(
                     )
                 }
 
+                // Lock (move to vault) / Restore — below the delete button.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(top = 200.dp, start = 8.dp)
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.5f))
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) { if (mediaItem.encrypted) showRestoreConfirm = true else showLockConfirm = true },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (mediaItem.encrypted) Icons.Default.Restore else Icons.Default.Lock,
+                        contentDescription = if (mediaItem.encrypted) "Restaurar à galeria" else "Mover para o cofre",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
                 // Bottom: progress bar
                 Column(
                     modifier = Modifier
@@ -2501,6 +2577,32 @@ fun FullscreenVideoPage(
             fileName = mediaItem.fileName,
             onConfirm = onDeleteMedia,
             onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    if (showLockConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLockConfirm = false },
+            title = { Text("Mover para o cofre?") },
+            text = { Text("O arquivo sai da galeria e fica guardado no app, protegido por senha. Use Restaurar para devolvê-lo ao mesmo lugar.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Mover ao cofre") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancelar") }
+            }
+        )
+    }
+    if (showRestoreConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = { Text("Restaurar à galeria?") },
+            text = { Text("O arquivo será devolvido à pasta original na galeria e removido do cofre.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restaurar") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancelar") }
+            }
         )
     }
 }
@@ -2776,10 +2878,14 @@ private fun FullscreenImagePage(
     onUpdatePeople: (List<String>) -> Unit = {},
     onFilterByTag: (String) -> Unit = {},
     onFilterByPerson: (String) -> Unit = {},
-    onDeleteMedia: () -> Unit = {}
+    onDeleteMedia: () -> Unit = {},
+    onLock: () -> Unit = {},
+    onRestore: () -> Unit = {}
 ) {
     var zoomScale by remember { mutableStateOf(1f) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showLockConfirm by remember { mutableStateOf(false) }
+    var showRestoreConfirm by remember { mutableStateOf(false) }
     var showEditMenu by remember { mutableStateOf(false) }
     var showTagEditor by remember { mutableStateOf(false) }
     var showPeopleEditor by remember { mutableStateOf(false) }
@@ -2837,7 +2943,25 @@ private fun FullscreenImagePage(
             .pointerInput(Unit) {
                 detectTapGestures(
                     onTap = { showControls = !showControls },
-                    onDoubleTap = { zoomScale = 1f; zoomOffset = Offset.Zero; onZoomChanged(false) }
+                    onDoubleTap = { tap ->
+                        if (zoomScale > 1f) {
+                            zoomScale = 1f; zoomOffset = Offset.Zero; onZoomChanged(false)
+                        } else {
+                            // Zoom in anchored on the tapped point: with the layer pivot at the
+                            // center c, a point p maps to c + s*(p - c) + t, so t = (p - c)*(1 - s)
+                            // keeps the tapped spot stationary under the finger.
+                            val s = 2.5f
+                            val c = Offset(containerWidth / 2f, containerHeight / 2f)
+                            val maxX = (s - 1f) * containerWidth / 2f
+                            val maxY = (s - 1f) * containerHeight / 2f
+                            zoomOffset = Offset(
+                                ((tap.x - c.x) * (1f - s)).coerceIn(-maxX, maxX),
+                                ((tap.y - c.y) * (1f - s)).coerceIn(-maxY, maxY)
+                            )
+                            zoomScale = s
+                            onZoomChanged(true)
+                        }
+                    }
                 )
             },
         contentAlignment = Alignment.Center
@@ -2885,6 +3009,11 @@ private fun FullscreenImagePage(
                 "Favorito",
                 tint = if (isFavorite) FavoriteRose else Color.White
             ) { isFavorite = !isFavorite; onToggleFavorite() }
+            if (mediaItem.encrypted) {
+                FsControlButton(Icons.Default.Restore, "Restaurar à galeria") { showRestoreConfirm = true }
+            } else {
+                FsControlButton(Icons.Default.Lock, "Mover para o cofre") { showLockConfirm = true }
+            }
             FsControlButton(Icons.Default.Delete, "Deletar", tint = Color(0xFFEF9A9A)) { showDeleteConfirm = true }
         }
         }
@@ -2939,6 +3068,32 @@ private fun FullscreenImagePage(
             fileName = mediaItem.fileName,
             onConfirm = onDeleteMedia,
             onDismiss = { showDeleteConfirm = false }
+        )
+    }
+    if (showLockConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showLockConfirm = false },
+            title = { Text("Mover para o cofre?") },
+            text = { Text("O arquivo sai da galeria e fica guardado no app, protegido por senha. Use Restaurar para devolvê-lo ao mesmo lugar.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Mover ao cofre") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancelar") }
+            }
+        )
+    }
+    if (showRestoreConfirm) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showRestoreConfirm = false },
+            title = { Text("Restaurar à galeria?") },
+            text = { Text("O arquivo será devolvido à pasta original na galeria e removido do cofre.") },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restaurar") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancelar") }
+            }
         )
     }
 }

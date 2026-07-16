@@ -161,12 +161,13 @@ object VaultManager {
      * The caller inserts the returned [VaultItem] into the database.
      */
     suspend fun importUri(context: Context, uri: Uri): VaultItem = withContext(Dispatchers.IO) {
-        val key = dek ?: error("Vault is locked")
         val cr = context.contentResolver
         val mime = cr.getType(uri) ?: "application/octet-stream"
         val mediaType = if (mime.startsWith("video/")) "video" else "image"
         val displayName = queryDisplayName(context, uri)
-        val storedName = UUID.randomUUID().toString().replace("-", "")
+        // Keep the file extension on the blob: Coil infers the media type from it
+        // (its VideoFrameDecoder only runs for a "video/*" mime), and players sniff faster.
+        val storedName = UUID.randomUUID().toString().replace("-", "") + "." + extFor(mime)
 
         val item = VaultItem(
             storedFileName = storedName,
@@ -175,15 +176,24 @@ object VaultManager {
             mimeType = mime
         )
 
-        // Encrypt the full file as a raw stream — output is bit-for-bit recoverable.
+        // Move the raw bytes into app-internal storage (filesDir/vault), which is invisible
+        // to other apps and to a PC over USB/MTP and is encrypted at rest by the OS when the
+        // device is locked. No per-file encryption: a 64 KB stream copy, bounded memory.
+        val sourceSize = queryFileSize(context, uri)
+        val blob = blobFile(context, item)
         cr.openInputStream(uri)?.use { input ->
-            FileOutputStream(blobFile(context, item)).use { out ->
-                VaultCrypto.encryptStream(key, input, out)
+            FileOutputStream(blob).use { out ->
+                input.copyTo(out, 64 * 1024)
+                out.fd.sync() // flush to disk before we trust the copy and delete the original
             }
         } ?: error("Cannot open $uri")
 
-        val size = blobFile(context, item).length()
-        // Aspect ratio for layout; the unified gallery decrypts the full file on view.
+        val size = blob.length()
+        // Data-loss guard: never delete the original unless the copy is present and complete.
+        if (size <= 0 || (sourceSize > 0 && size != sourceSize)) {
+            runCatching { blob.delete() }
+            error("Vault copy failed for $displayName (copied $size of $sourceSize bytes)")
+        }
         val (_, aspect) = makeThumbnail(context, uri, mediaType)
 
         deleteOriginal(context, uri)
@@ -195,25 +205,19 @@ object VaultManager {
     private fun blobFileByName(context: Context, storedName: String): File =
         File(vaultDir(context), storedName)
 
-    /** Synchronous decrypt to a temp file (idempotent). Safe to call off the main thread. */
+    /** Returns the readable media file for [storedName], or null if the vault is locked/missing. */
     fun decryptBlobToTempSync(context: Context, storedName: String, mimeType: String): File? {
-        val key = dek ?: return null
-        val out = File(tempDir(context), storedName + "." + extFor(mimeType))
-        if (out.exists() && out.length() > 0) return out
-        return runCatching {
-            FileInputStream(blobFileByName(context, storedName)).use { input ->
-                FileOutputStream(out).use { o -> VaultCrypto.decryptStream(key, input, o) }
-            }
-            out
-        }.getOrNull()
+        if (dek == null) return null
+        val blob = blobFileByName(context, storedName)
+        return if (blob.exists()) blob else null
     }
 
-    /** Decrypts a blob to an arbitrary output stream (e.g. a SAF document). */
+    /** Copies a blob's bytes to an arbitrary output stream (e.g. a SAF document). */
     fun decryptBlobToStream(context: Context, storedName: String, out: java.io.OutputStream): Boolean {
-        val key = dek ?: return false
+        if (dek == null) return false
         return runCatching {
             FileInputStream(blobFileByName(context, storedName)).use { input ->
-                VaultCrypto.decryptStream(key, input, out)
+                input.copyTo(out, 64 * 1024)
             }
             true
         }.getOrElse { false }
@@ -225,11 +229,11 @@ object VaultManager {
         tempDir(context).listFiles()?.filter { it.name.startsWith(storedName) }?.forEach { it.delete() }
     }
 
-    /** Decrypts a blob back to the system gallery, then deletes the blob. */
+    /** Copies a blob into the system gallery. Returns the new MediaStore uri, or null. */
     suspend fun restoreBlobToGallery(
         context: Context, storedName: String, displayName: String, mediaType: String, mimeType: String
-    ): Boolean = withContext(Dispatchers.IO) {
-        val key = dek ?: return@withContext false
+    ): String? = withContext(Dispatchers.IO) {
+        if (dek == null) return@withContext null
         val cr = context.contentResolver
         val isVideo = mediaType == "video"
         val collection = if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
@@ -242,11 +246,11 @@ object VaultManager {
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
         }
-        val target = cr.insert(collection, values) ?: return@withContext false
+        val target = cr.insert(collection, values) ?: return@withContext null
         val ok = runCatching {
             cr.openOutputStream(target)?.use { out ->
                 FileInputStream(blobFileByName(context, storedName)).use { input ->
-                    VaultCrypto.decryptStream(key, input, out)
+                    input.copyTo(out, 64 * 1024)
                 }
             } ?: return@runCatching false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -259,79 +263,11 @@ object VaultManager {
             runCatching { cr.delete(target, null, null) }
             false
         }
-        if (ok) deleteBlobByName(context, storedName)
-        ok
+        // Blob deletion is the caller's responsibility (it updates the DB row first).
+        if (ok) target.toString() else null
     }
 
-    suspend fun decryptThumb(context: Context, item: VaultItem): ByteArray? =
-        withContext(Dispatchers.IO) {
-            val key = dek ?: return@withContext null
-            val f = thumbFile(context, item)
-            if (!f.exists()) return@withContext null
-            runCatching {
-                ByteArrayOutputStream().use { bos ->
-                    FileInputStream(f).use { input -> VaultCrypto.decryptStream(key, input, bos) }
-                    bos.toByteArray()
-                }
-            }.getOrNull()
-        }
-
-    /** Decrypts the full media to a temp file (cleared on lock) for viewing/playback. */
-    suspend fun decryptToTemp(context: Context, item: VaultItem): File? =
-        withContext(Dispatchers.IO) {
-            val key = dek ?: return@withContext null
-            val out = File(tempDir(context), item.storedFileName + "." + extFor(item.mimeType))
-            if (out.exists() && out.length() > 0) return@withContext out
-            runCatching {
-                FileInputStream(blobFile(context, item)).use { input ->
-                    FileOutputStream(out).use { o -> VaultCrypto.decryptStream(key, input, o) }
-                }
-                out
-            }.getOrNull()
-        }
-
-    /**
-     * Restores [item] back to the system gallery (Pictures/Movies), then removes
-     * it from the vault. Returns true on success.
-     */
-    suspend fun restoreToGallery(context: Context, item: VaultItem): Boolean =
-        withContext(Dispatchers.IO) {
-            val key = dek ?: return@withContext false
-            val cr = context.contentResolver
-            val isVideo = item.mediaType == "video"
-            val collection = if (isVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                             else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            val values = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, item.displayName)
-                put(MediaStore.MediaColumns.MIME_TYPE, item.mimeType)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    val dir = if (isVideo) "Movies/FeedVault" else "Pictures/FeedVault"
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, dir)
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
-                }
-            }
-            val target = cr.insert(collection, values) ?: return@withContext false
-            val ok = runCatching {
-                cr.openOutputStream(target)?.use { out ->
-                    FileInputStream(blobFile(context, item)).use { input ->
-                        VaultCrypto.decryptStream(key, input, out)
-                    }
-                } ?: return@runCatching false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    values.clear()
-                    values.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                    cr.update(target, values, null, null)
-                }
-                true
-            }.getOrElse {
-                runCatching { cr.delete(target, null, null) }
-                false
-            }
-            if (ok) deleteFiles(context, item)
-            ok
-        }
-
-    /** Permanently deletes the encrypted blobs for [item]. Caller removes the DB row. */
+    /** Permanently deletes the stored files for [item]. Caller removes the DB row. */
     fun deleteFiles(context: Context, item: VaultItem) {
         runCatching { blobFile(context, item).delete() }
         runCatching { thumbFile(context, item).delete() }
@@ -365,6 +301,21 @@ object VaultManager {
         return name
     }
 
+    /** Size in bytes of the content at [uri], or 0 if unknown. Used to verify the vault copy. */
+    private fun queryFileSize(context: Context, uri: Uri): Long {
+        runCatching {
+            context.contentResolver.query(
+                uri, arrayOf(OpenableColumns.SIZE), null, null, null
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val idx = c.getColumnIndex(OpenableColumns.SIZE)
+                    if (idx >= 0 && !c.isNull(idx)) return c.getLong(idx)
+                }
+            }
+        }
+        return 0L
+    }
+
     /** Returns (jpegThumbBytes, aspectRatio). */
     private fun makeThumbnail(context: Context, uri: Uri, mediaType: String): Pair<ByteArray?, Float> {
         return try {
@@ -372,13 +323,27 @@ object VaultManager {
                 val r = MediaMetadataRetriever()
                 try {
                     r.setDataSource(context, uri)
-                    r.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    // Decode a small frame directly: getFrameAtTime returns the full-resolution
+                    // frame (a 4K/8K frame is 30-130 MB) which OOMs on import. Scaled keeps it tiny.
+                    if (android.os.Build.VERSION.SDK_INT >= 27) {
+                        r.getScaledFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 720, 720)
+                    } else {
+                        r.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    }
                 } finally {
                     runCatching { r.release() }
                 }
             } else {
+                // Read bounds first so we can downsample large photos instead of decoding
+                // the full bitmap into memory (a 50 MP image is ~200 MB as ARGB_8888).
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                context.contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, bounds)
+                }
+                val opts = BitmapFactory.Options().apply {
+                    inSampleSize = computeInSampleSize(bounds.outWidth, bounds.outHeight, 1080)
+                }
                 context.contentResolver.openInputStream(uri)?.use { input ->
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
                     BitmapFactory.decodeStream(input, null, opts)
                 }
             }) ?: return null to 0f
@@ -392,6 +357,14 @@ object VaultManager {
         } catch (e: Exception) {
             null to 0f
         }
+    }
+
+    /** Power-of-two subsample factor that keeps the larger side at or below [max] px. */
+    private fun computeInSampleSize(w: Int, h: Int, max: Int): Int {
+        if (w <= 0 || h <= 0) return 1
+        var sample = 1
+        while (maxOf(w, h) / sample > max) sample *= 2
+        return sample
     }
 
     private fun scaleToMax(src: Bitmap, max: Int): Bitmap {

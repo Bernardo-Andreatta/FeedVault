@@ -2,7 +2,9 @@ package com.bernardo.feedvault
 
 import android.app.Activity
 import android.net.Uri
+import android.Manifest
 import android.os.Build
+import androidx.core.content.ContextCompat
 import android.view.WindowManager
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
@@ -43,6 +45,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.NoteAdd
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -171,6 +176,19 @@ class MainActivity : FragmentActivity() {
     private lateinit var filePickerLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var exportTagsLauncher: ActivityResultLauncher<String>
 
+    // Same instance the UI sees (both scope to this Activity's ViewModelStore). Used by the
+    // result callbacks, which must survive process death while the SAF picker is foregrounded.
+    private fun galleryViewModel(): GalleryViewModel =
+        androidx.lifecycle.ViewModelProvider(
+            this,
+            object : androidx.lifecycle.ViewModelProvider.Factory {
+                override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+                    @Suppress("UNCHECKED_CAST")
+                    return GalleryViewModel(this@MainActivity) as T
+                }
+            }
+        )[GalleryViewModel::class.java]
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -230,16 +248,7 @@ class MainActivity : FragmentActivity() {
             ActivityResultContracts.CreateDocument("application/json")
         ) { uri ->
             if (uri == null) return@registerForActivityResult
-            val vm = androidx.lifecycle.ViewModelProvider(
-                this,
-                object : androidx.lifecycle.ViewModelProvider.Factory {
-                    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-                        @Suppress("UNCHECKED_CAST")
-                        return GalleryViewModel(this@MainActivity) as T
-                    }
-                }
-            )[GalleryViewModel::class.java]
-            vm.exportTags(uri)
+            galleryViewModel().exportTags(uri)
         }
 
         setContent {
@@ -318,20 +327,6 @@ fun GalleryScreen(
             }
         }
     ) else null
-    val vaultPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        uris.forEach { uri ->
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
-            }
-        }
-        viewModel.importToVault(uris)
-    }
     val downloadItems = if (BuildConfig.ENABLE_DESKTOP) downloadQueueViewModel!!.items.collectAsState().value else emptyList()
     var showDownloadSheet by remember { mutableStateOf(false) }
     var fabDismissed by remember { mutableStateOf(false) }
@@ -341,6 +336,27 @@ fun GalleryScreen(
         prevDownloadCount.value = downloadItems.size
     }
     val uiState by viewModel.uiState.collectAsState()
+
+    // Android blocks picking the Download folder via the SAF tree picker, so reading it goes
+    // through MediaStore — which needs the media read permission, requested only on demand here.
+    val mediaReadPermissions = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            arrayOf(Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.READ_MEDIA_VIDEO)
+        else arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+    fun hasMediaReadPermission() = mediaReadPermissions.any {
+        ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    val downloadsPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        if (result.values.any { it } || hasMediaReadPermission()) viewModel.addDownloadsMedia()
+        else viewModel.setError("Permissão de mídia negada — não dá pra ler Downloads")
+    }
+    val onAddDownloads: () -> Unit = {
+        if (hasMediaReadPermission()) viewModel.addDownloadsMedia()
+        else downloadsPermLauncher.launch(mediaReadPermissions)
+    }
 
     var editingItem by remember { mutableStateOf<MediaItem?>(null) }
     var showTagEditor by remember { mutableStateOf(false) }
@@ -352,6 +368,7 @@ fun GalleryScreen(
     var showBatchPeopleEditor by remember { mutableStateOf(false) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var showBatchRestoreConfirm by remember { mutableStateOf(false) }
+    var showBatchLockConfirm by remember { mutableStateOf(false) }
     var fullscreenState by remember { mutableStateOf<FullscreenState?>(null) }
     var fullscreenClipState by remember { mutableStateOf<ClipFullscreenState?>(null) }
     val feedListState = rememberLazyListState()
@@ -359,6 +376,7 @@ fun GalleryScreen(
     val clipsListState = rememberLazyListState()
     var scrollRequest by remember { mutableStateOf(0 to null as String?) }
     var sortMenuExpanded by remember { mutableStateOf(false) }
+    var addMenuExpanded by remember { mutableStateOf(false) }
     var draggedPersonIndex by remember { mutableStateOf<Int?>(null) }
     var dragOffset by remember { mutableStateOf(0f) }
     val peopleItemHeights = remember { HashMap<Int, Int>() }
@@ -750,8 +768,30 @@ fun GalleryScreen(
                             Icon(Icons.Default.Refresh, contentDescription = "Sincronizar")
                         }
                     }
-                    IconButton(onClick = { scope.launch { drawerState.close() }; onSelectFolder() }) {
-                        Icon(Icons.Default.Add, contentDescription = "Adicionar Pasta")
+                    Box {
+                        IconButton(onClick = { addMenuExpanded = true }) {
+                            Icon(Icons.Default.Add, contentDescription = "Adicionar mídia")
+                        }
+                        DropdownMenu(
+                            expanded = addMenuExpanded,
+                            onDismissRequest = { addMenuExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Pasta") },
+                                leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
+                                onClick = { addMenuExpanded = false; scope.launch { drawerState.close() }; onSelectFolder() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Arquivos") },
+                                leadingIcon = { Icon(Icons.Default.NoteAdd, contentDescription = null) },
+                                onClick = { addMenuExpanded = false; scope.launch { drawerState.close() }; onSelectFiles() }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Downloads") },
+                                leadingIcon = { Icon(Icons.Default.Download, contentDescription = null) },
+                                onClick = { addMenuExpanded = false; scope.launch { drawerState.close() }; onAddDownloads() }
+                            )
+                        }
                     }
                     // Settings sits last on the right, separated from the rest.
                     Spacer(modifier = Modifier.weight(1f))
@@ -812,9 +852,6 @@ fun GalleryScreen(
                                 AppSection.DESKTOP -> {}
                                 else -> {
                                     if (uiState.vaultMode) {
-                                        IconButton(onClick = { viewModel.markVaultPickerLaunch(); vaultPickerLauncher.launch(arrayOf("image/*", "video/*")) }) {
-                                            Icon(Icons.Default.Add, contentDescription = "Adicionar ao cofre", modifier = Modifier.size(18.dp))
-                                        }
                                         if (!uiState.vaultBiometricEnabled) {
                                             IconButton(onClick = { enableVaultBiometric(context, viewModel) }) {
                                                 Icon(Icons.Default.Fingerprint, contentDescription = "Ativar biometria", modifier = Modifier.size(18.dp))
@@ -1261,6 +1298,7 @@ fun GalleryScreen(
                                 onToggleSelection = { id -> viewModel.toggleSelection(id) },
                                 onDeleteMedia = { item -> viewModel.deleteMediaItem(item) },
                                 onRestoreMedia = { item -> viewModel.restoreFromVault(item) },
+                                onLockMedia = { item -> viewModel.lockToVault(item) },
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
@@ -1304,6 +1342,14 @@ fun GalleryScreen(
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                     ) {
                                         Icon(Icons.Default.Restore, contentDescription = "Restaurar à galeria", modifier = Modifier.size(18.dp))
+                                    }
+                                } else {
+                                    Button(
+                                        onClick = { showBatchLockConfirm = true },
+                                        enabled = uiState.selectedIds.isNotEmpty(),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Lock, contentDescription = "Mover para o cofre", modifier = Modifier.size(18.dp))
                                     }
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1477,7 +1523,7 @@ fun GalleryScreen(
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showBatchRestoreConfirm = false },
                 title = { Text("Restaurar $count arquivo${if (count != 1) "s" else ""}?") },
-                text = { Text("Os arquivos serão descriptografados, devolvidos à galeria e removidos do cofre.") },
+                text = { Text("Os arquivos serão devolvidos à pasta original na galeria e removidos do cofre.") },
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showBatchRestoreConfirm = false
@@ -1486,6 +1532,26 @@ fun GalleryScreen(
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { showBatchRestoreConfirm = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
+        if (showBatchLockConfirm) {
+            val count = uiState.selectedIds.size
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showBatchLockConfirm = false },
+                title = { Text("Mover $count arquivo${if (count != 1) "s" else ""} para o cofre?") },
+                text = { Text("Os arquivos saem da galeria e ficam guardados no app, protegidos por senha. Use Restaurar para devolvê-los ao mesmo lugar.") },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = {
+                        showBatchLockConfirm = false
+                        viewModel.lockSelectedToVault()
+                    }) { Text("Mover ao cofre") }
+                },
+                dismissButton = {
+                    androidx.compose.material3.TextButton(onClick = { showBatchLockConfirm = false }) {
                         Text("Cancelar")
                     }
                 }
@@ -1574,7 +1640,9 @@ fun GalleryScreen(
             onReturnedToEmbed = { uri -> scrollRequest = (scrollRequest.first + 1) to uri },
             onFilterByTag = { tag -> fullscreenState = null; viewModel.toggleTag(tag) },
             onFilterByPerson = { person -> fullscreenState = null; viewModel.togglePerson(person) },
-            onDeleteMedia = { item -> viewModel.deleteMediaItem(item); fullscreenState = null }
+            onDeleteMedia = { item -> viewModel.deleteMediaItem(item); fullscreenState = null },
+            onLockMedia = { item -> viewModel.lockToVault(item); fullscreenState = null },
+            onRestoreMedia = { item -> viewModel.restoreFromVault(item); fullscreenState = null }
         )
     }
 

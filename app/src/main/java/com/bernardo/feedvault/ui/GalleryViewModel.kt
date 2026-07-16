@@ -96,9 +96,11 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
 
     init {
         val savedUri = prefs.getString("folder_uri", null)
-        if (savedUri != null) {
-            _uiState.value = _uiState.value.copy(hasSavedFolder = true)
-        }
+        // Shuffle on/off survives app close and process kill (persisted), unlike the default.
+        _uiState.value = _uiState.value.copy(
+            hasSavedFolder = savedUri != null,
+            isShuffled = prefs.getBoolean("is_shuffled", true)
+        )
         setupDatabase()
     }
 
@@ -169,6 +171,21 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                 repository.addMediaFiles(uris)
             } catch (e: Exception) {
                 e.printStackTrace()
+            } finally {
+                _uiState.value = _uiState.value.copy(isLoading = false)
+            }
+        }
+    }
+
+    fun addDownloadsMedia() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoading = true)
+            try {
+                val added = repository.addDownloadsMedia()
+                if (added == 0) setError("Nenhuma mídia nova encontrada em Downloads")
+            } catch (e: Exception) {
+                e.printStackTrace()
+                setError("Erro ao ler Downloads")
             } finally {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }
@@ -533,6 +550,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             shuffleOrder = emptyList()
         }
         _uiState.value = _uiState.value.copy(isShuffled = enabling)
+        prefs.edit().putBoolean("is_shuffled", enabling).apply()
         updateFilteredMedia(scrollFeed = true)
     }
 
@@ -615,6 +633,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     fun setMediaSortOrder(order: MediaSortOrder) {
         shuffleOrder = emptyList()
         _uiState.value = _uiState.value.copy(mediaSortOrder = order, isShuffled = false)
+        prefs.edit().putBoolean("is_shuffled", false).apply()
         updateFilteredMedia(scrollFeed = true)
     }
 
@@ -664,19 +683,14 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     }
 
     private fun onVaultUnlocked() {
-        // Decrypt everything first (gate stays up showing progress) so the feed never
-        // triggers a blocking decrypt on the main thread once it becomes visible.
+        // Instant: vault media are plain files in internal storage, so resolve() is a file-uri
+        // lookup with no decryption — nothing to pre-process before showing the feed.
         _uiState.value = _uiState.value.copy(
             vaultInitialized = true,
             vaultBiometricEnabled = VaultManager.isBiometricEnabled(context),
-            vaultBusy = true,
-            vaultBusyMessage = "Descriptografando..."
+            vaultUnlocked = true
         )
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { VaultSession.decryptAll() }
-            _uiState.value = _uiState.value.copy(vaultUnlocked = true, vaultBusy = false, vaultBusyMessage = null)
-            updateFilteredMedia(scrollFeed = true, scrollClips = true)
-        }
+        updateFilteredMedia(scrollFeed = true, scrollClips = true)
     }
 
     // Auto-lock when the app is backgrounded, except across an intentional picker launch
@@ -698,16 +712,33 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
         updateFilteredMedia()
     }
 
-    fun importToVault(uris: List<Uri>) {
-        if (uris.isEmpty()) return
+    /** Moves a single gallery item into the vault (remembering its origin for Restore). */
+    fun lockToVault(item: MediaItem) = lockToVault(listOf(item))
+
+    /** Moves the current selection (normal-gallery items) into the vault. */
+    fun lockSelectedToVault() {
+        val items = _uiState.value.allMedia.filter { it.id in _uiState.value.selectedIds && !it.encrypted }
+        lockToVault(items, clearSelectionAfter = true)
+    }
+
+    private fun lockToVault(items: List<MediaItem>, clearSelectionAfter: Boolean = false) {
+        if (items.isEmpty()) return
+        if (!VaultManager.isInitialized(context)) {
+            setError("Configure o cofre primeiro: abra o Cofre e defina uma senha")
+            return
+        }
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Protegendo mídia...")
             var failed = 0
-            uris.forEachIndexed { i, uri ->
-                _uiState.value = _uiState.value.copy(vaultBusyMessage = "Protegendo ${i + 1}/${uris.size}...")
-                if (!repository.importToVault(uri)) failed++
+            items.forEachIndexed { i, item ->
+                _uiState.value = _uiState.value.copy(vaultBusyMessage = "Protegendo ${i + 1}/${items.size}...")
+                if (!repository.lockToVault(item)) failed++
             }
-            _uiState.value = _uiState.value.copy(vaultBusy = false, vaultBusyMessage = null)
+            _uiState.value = _uiState.value.copy(
+                vaultBusy = false, vaultBusyMessage = null,
+                selectedIds = if (clearSelectionAfter) emptySet() else _uiState.value.selectedIds,
+                isSelectionMode = if (clearSelectionAfter) false else _uiState.value.isSelectionMode
+            )
             if (failed > 0) setError("$failed item(s) não puderam ser protegidos")
         }
     }
