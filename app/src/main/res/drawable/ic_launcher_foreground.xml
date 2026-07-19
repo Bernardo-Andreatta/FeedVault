@@ -1,12 +1,52 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    FeedVault launcher glyph: a camera-aperture iris that reads as a vault wheel —
+    six blades tangent to the inner opening, inside a heavy door rim. Single-color
+    strokes so the same drawable doubles as the Android 13+ monochrome layer.
+    Geometry: center (54,54); rim r=29; blades run from r=24 tangent to r=11.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- Door rim -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,36 L54,72 M36,54 L72,54"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="6"/>
+        android:pathData="M54,25 A29,29 0 1,1 53.99,25 Z"
+        android:strokeColor="#E8ECF3"
+        android:strokeWidth="5"
+        android:fillColor="#00000000"/>
+
+    <!-- Iris blades: one tangent segment, rotated in 60° steps -->
+    <group android:rotation="0" android:pivotX="54" android:pivotY="54">
+        <path android:pathData="M55.6,33 L63.8,49"
+            android:strokeColor="#E8ECF3" android:strokeWidth="5.5"
+            android:strokeLineCap="round" android:fillColor="#00000000"/>
+    </group>
+    <group android:rotation="60" android:pivotX="54" android:pivotY="54">
+        <path android:pathData="M55.6,33 L63.8,49"
+            android:strokeColor="#E8ECF3" android:strokeWidth="5.5"
+            android:strokeLineCap="round" android:fillColor="#00000000"/>
+    </group>
+    <group android:rotation="120" android:pivotX="54" android:pivotY="54">
+        <path android:pathData="M55.6,33 L63.8,49"
+            android:strokeColor="#E8ECF3" android:strokeWidth="5.5"
+            android:strokeLineCap="round" android:fillColor="#00000000"/>
+    </group>
+    <group android:rotation="180" android:pivotX="54" android:pivotY="54">
+        <path android:pathData="M55.6,33 L63.8,49"
+            android:strokeColor="#E8ECF3" android:strokeWidth="5.5"
+            android:strokeLineCap="round" android:fillColor="#00000000"/>
+    </group>
+    <group android:rotation="240" android:pivotX="54" android:pivotY="54">
+        <path android:pathData="M55.6,33 L63.8,49"
+            android:strokeColor="#E8ECF3" android:strokeWidth="5.5"
+            android:strokeLineCap="round" android:fillColor="#00000000"/>
+    </group>
+    <group android:rotation="300" android:pivotX="54" android:pivotY="54">
+        <path android:pathData="M55.6,33 L63.8,49"
+            android:strokeColor="#E8ECF3" android:strokeWidth="5.5"
+            android:strokeLineCap="round" android:fillColor="#00000000"/>
+    </group>
 </vector>
