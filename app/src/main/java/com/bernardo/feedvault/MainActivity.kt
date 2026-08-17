@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -482,6 +484,33 @@ fun GalleryScreen(
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
 
+    // Toggle list<->grid while keeping the same items on screen: read whichever state is
+    // currently active, then scroll the other one to that same item index before it flips in.
+    // The anchor is rounded to whichever item/row is majority-visible (not just whatever
+    // sliver touches the top) — otherwise repeated toggling with no scrolling in between
+    // drifts, since scrollToItem always snaps the target to offset 0.
+    fun switchFeedView() {
+        val wasGrid = uiState.isGridView
+        val visibleIndex = if (wasGrid) {
+            // MediaFeed's grid is GridCells.Fixed(3) — visibleItemsInfo.firstOrNull() is
+            // always the row's leftmost (lowest) index, so the anchor must stay row-aligned.
+            // Rounding to a mid-row index (plain +1) would never match on the next readback.
+            val gridColumns = 3
+            val info = feedGridState.layoutInfo.visibleItemsInfo.firstOrNull()
+            if (info != null) {
+                val rowStart = info.index - (info.index % gridColumns)
+                if (-info.offset.y > info.size.height / 2) rowStart + gridColumns else rowStart
+            } else 0
+        } else {
+            val info = feedListState.layoutInfo.visibleItemsInfo.firstOrNull()
+            if (info != null && -info.offset > info.size / 2) info.index + 1 else (info?.index ?: 0)
+        }
+        viewModel.toggleGridView()
+        scope.launch {
+            if (wasGrid) feedListState.scrollToItem(visibleIndex) else feedGridState.scrollToItem(visibleIndex)
+        }
+    }
+
     var pendingDesktopFile by remember { mutableStateOf<com.bernardo.feedvault.data.DesktopFile?>(null) }
     var showUseDesktopFolderDialog by remember { mutableStateOf(false) }
     var pendingDesktopFiles by remember { mutableStateOf<List<com.bernardo.feedvault.data.DesktopFile>>(emptyList()) }
@@ -888,7 +917,7 @@ fun GalleryScreen(
                                         }
                                     }
                                     val isClips = uiState.currentSection == AppSection.CLIPS
-                                    IconButton(onClick = { viewModel.toggleGridView() }) {
+                                    IconButton(onClick = { switchFeedView() }) {
                                         Icon(
                                             imageVector = if (uiState.isGridView) Icons.Default.ViewStream else Icons.Default.GridView,
                                             contentDescription = "Toggle view",
@@ -1331,6 +1360,35 @@ fun GalleryScreen(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
+                                    .pointerInput(Unit) {
+                                        val swipeThresholdPx = 96.dp.toPx()
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            val downX = down.position.x
+                                            val downY = down.position.y
+                                            var lastDx = 0f
+                                            var claimed = false
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                if (!change.pressed) break
+                                                val dx = change.position.x - downX
+                                                val dy = change.position.y - downY
+                                                lastDx = dx
+                                                // Claim only a deliberate leftward swipe (more horizontal
+                                                // than vertical) — right swipes stay unclaimed so the
+                                                // drawer's own edge-swipe-to-open keeps working, and
+                                                // mostly-vertical drags still scroll the feed normally.
+                                                if (!claimed && dx < -viewConfiguration.touchSlop && kotlin.math.abs(dx) > kotlin.math.abs(dy)) {
+                                                    claimed = true
+                                                }
+                                                if (claimed) change.consume()
+                                            }
+                                            if (claimed && lastDx < -swipeThresholdPx) {
+                                                switchFeedView()
+                                            }
+                                        }
+                                    }
                             )
                         }
                         if (uiState.isSelectionMode) {
