@@ -229,6 +229,13 @@ fun MediaFeed(
                     // Detect down using Main pass (default) — grid scroll tracking starts in parallel
                     val down = awaitFirstDown(requireUnconsumed = false)
                     val downPos = down.position
+                    val wasFlinging = gridState.isScrollInProgress
+                    // Hit-test immediately too: if the finger stays put (no fling in progress),
+                    // this is what the user actually saw/touched. A background rescan inserting
+                    // new items can shift the grid under a *static* finger before release, which
+                    // would otherwise make a coordinate re-hit-test at release land on a
+                    // different (possibly newly-added) tile — "plays the new video instead".
+                    val earlyId = findItemIdAt(gridState, downPos)
 
                     // Use Initial pass to classify gesture before grid consumes events
                     val gestureType = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
@@ -243,12 +250,11 @@ fun MediaFeed(
                         @Suppress("UNREACHABLE_CODE") "TAP"
                     }
 
-                    // Resolve the pressed item only AFTER the gesture is classified. At down
-                    // time the grid can still be flinging/settling, and layoutInfo lags the
-                    // rendered frame — hit-testing then opens a neighboring tile ("wrong file
-                    // in fullscreen"). By classification time (release / long-press timeout)
-                    // the down has stopped the scroll and layoutInfo matches what's on screen.
-                    val downId = findItemIdAt(gridState, downPos)
+                    // If the grid was flinging at down time, layoutInfo lagged the rendered
+                    // frame, so re-resolve now that the fling has stopped (existing fix for
+                    // "wrong file in fullscreen" while scrolling). Otherwise trust the id
+                    // captured at touch-down, which reflects what the user actually pressed.
+                    val downId = if (wasFlinging) findItemIdAt(gridState, downPos) else earlyId
                     val downItem = if (downId != null) items.firstOrNull { it.id == downId } else null
 
                     when (gestureType) {
@@ -964,6 +970,9 @@ fun VideoPlayer(
     var duration by remember(uri) { mutableStateOf(0L) }
     var isScrubbing by remember(uri) { mutableStateOf(false) }
     var scrubPos by remember(uri) { mutableStateOf(0L) }
+    var scrubFrames by remember(uri) { mutableStateOf(reelFrameCache[uri] ?: emptyList()) }
+    val scrubImageBitmaps = remember(scrubFrames) { scrubFrames.map { it.asImageBitmap() } }
+    var framesRequested by remember(uri) { mutableStateOf(false) }
     var embedSeekHint by remember(uri) { mutableStateOf<SeekHint?>(null) }
     var embedSeekAccumMs by remember(uri) { mutableStateOf(0L) }
     var pendingSeekMs by remember(uri) { mutableStateOf(0L) }
@@ -1014,6 +1023,71 @@ fun VideoPlayer(
             if (!isScrubbing) currentPosition = p.currentPosition
             delay(500)
         }
+    }
+
+    // Scrub-preview frames — only start extracting once the user actually presses play
+    // (not just when the item scrolls into view), so idle feed items never throttle the
+    // app decoding frames nobody asked for.
+    LaunchedEffect(uri, isPlaying) {
+        if (!isPlaying || framesRequested) return@LaunchedEffect
+        framesRequested = true
+        reelFrameCache[uri]?.let { scrubFrames = it; return@LaunchedEffect }
+        val (dur, targetPx) = withContext(Dispatchers.IO) {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(context, VaultSession.resolve(uri))
+                val d = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+                val w = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                val h = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                val px = when {
+                    maxOf(w, h) > 2500 -> 320
+                    maxOf(w, h) > 1500 -> 240
+                    else -> 200
+                }
+                d to px
+            } catch (_: Throwable) { 0L to 240 }
+            finally { runCatching { retriever.release() } }
+        }
+        if (dur <= 0) return@LaunchedEffect
+        val count = ((dur / 1000L) / 15L).toInt().coerceAtLeast(10).coerceAtMost(60)
+        val frames = arrayOfNulls<Bitmap>(count)
+        val parallelism = if (android.os.Build.VERSION.SDK_INT >= 27) minOf(4, count) else 1
+        withContext(Dispatchers.IO) {
+            coroutineScope {
+                repeat(parallelism) { group ->
+                    launch {
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(context, VaultSession.resolve(uri))
+                            var i = group
+                            while (i < count) {
+                                val timeUs = dur * 1000L * i / count
+                                val scaled: Bitmap? = if (android.os.Build.VERSION.SDK_INT >= 27) {
+                                    retriever.getScaledFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC, targetPx, targetPx)
+                                } else {
+                                    retriever.getFrameAtTime(timeUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.let { raw ->
+                                        val scale = targetPx.toFloat() / maxOf(raw.width, raw.height)
+                                        Bitmap.createScaledBitmap(raw, (raw.width * scale).toInt().coerceAtLeast(1), (raw.height * scale).toInt().coerceAtLeast(1), true)
+                                            .also { raw.recycle() }
+                                    }
+                                }
+                                if (scaled != null) {
+                                    frames[i] = scaled
+                                    withContext(Dispatchers.Main) { scrubFrames = frames.filterNotNull() }
+                                }
+                                i += parallelism
+                            }
+                        } catch (_: Throwable) {
+                        } finally {
+                            runCatching { retriever.release() }
+                        }
+                    }
+                }
+            }
+        }
+        val finalFrames = frames.filterNotNull()
+        reelFrameCache[uri] = finalFrames
+        scrubFrames = finalFrames
     }
 
     DisposableEffect(uri) {
@@ -1270,6 +1344,17 @@ fun VideoPlayer(
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+
+        if (isScrubbing && scrubImageBitmaps.isNotEmpty() && duration > 0) {
+            val frameIdx = (scrubPos.toFloat() / duration.toFloat() * scrubImageBitmaps.size)
+                .toInt().coerceIn(0, scrubImageBitmaps.lastIndex)
+            Image(
+                bitmap = scrubImageBitmaps[frameIdx],
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -1710,12 +1795,8 @@ fun FullscreenVideoPage(
     var isExtractingFrames by remember(mediaItem.uri) { mutableStateOf(!reelFrameCache.containsKey(mediaItem.uri)) }
     var playerReady by remember(mediaItem.uri) { mutableStateOf(false) }
     val exoPlayer = remember(mediaItem.uri) {
-        // Drop cached frames for OTHER videos before allocating decoder buffers — prevents OOM.
-        // Do NOT recycle() here: BitmapPainters in adjacent pager pages may still be drawing
-        // those bitmaps on the main thread, and recycle() while drawing → crash.
-        reelFrameCache.keys.filter { it != mediaItem.uri }.toList().forEach { key ->
-            reelFrameCache.remove(key)
-        }
+        // reelFrameCache LRU-evicts down to 2 entries on its own now — no manual wipe needed
+        // here (that used to risk recycle()-while-drawing crashes on adjacent pager pages).
         ExoPlayer.Builder(context)
             .setLoadControl(
                 DefaultLoadControl.Builder()
@@ -1955,6 +2036,12 @@ fun FullscreenVideoPage(
                             onZoomChanged(newScale > 1f)
                         }
                         // single-touch + scale==1f → don't consume → VerticalPager sees it
+                    }
+                    // All fingers lifted: an accidental brief multi-touch during a swipe can
+                    // nudge scale trivially above 1f without a real pinch — snap back so the
+                    // pager doesn't stay locked (isZoomed) with no way to recover.
+                    if (zoomScale in 1f..1.05f) {
+                        zoomScale = 1f; zoomOffset = Offset.Zero; onZoomChanged(false)
                     }
                 }
             }
@@ -2607,8 +2694,12 @@ fun FullscreenVideoPage(
     }
 }
 
-// Process-lifetime frame cache — survives controls hide/show cycles
-private val reelFrameCache = HashMap<String, List<Bitmap>>()
+// Process-lifetime scrub-preview frame cache, shared by the embedded (in-feed) and
+// fullscreen players so the same video's frames aren't extracted twice. LRU-evicts down
+// to the last 2 played videos, so switching away drops older frames automatically.
+private val reelFrameCache = object : LinkedHashMap<String, List<Bitmap>>(3, 0.75f, true) {
+    override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, List<Bitmap>>) = size > 2
+}
 
 @Composable
 fun VideoScrubberReel(
@@ -2937,6 +3028,12 @@ private fun FullscreenImagePage(
                             zoomScale = newScale
                             onZoomChanged(newScale > 1f)
                         }
+                    }
+                    // All fingers lifted: an accidental brief multi-touch during a swipe can
+                    // nudge scale trivially above 1f without a real pinch — snap back so the
+                    // pager doesn't stay locked (isZoomed) with no way to recover.
+                    if (zoomScale in 1f..1.05f) {
+                        zoomScale = 1f; zoomOffset = Offset.Zero; onZoomChanged(false)
                     }
                 }
             }
