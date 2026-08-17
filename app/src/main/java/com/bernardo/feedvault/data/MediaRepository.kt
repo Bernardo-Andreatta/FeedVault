@@ -1,18 +1,24 @@
 package com.bernardo.feedvault.data
 
+import android.app.RecoverableSecurityException
 import android.content.ContentUris
 import android.content.Context
+import android.content.IntentSender
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.provider.DocumentsContract
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import androidx.documentfile.provider.DocumentFile
 import com.bernardo.feedvault.vault.VaultManager
 import com.bernardo.feedvault.vault.VaultSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+
+/** Thrown when deleting a MediaStore-owned file needs one-time user consent (Android 10+). */
+class DeletePermissionRequiredException(val intentSender: IntentSender) : Exception()
 
 class MediaRepository(
     private val context: Context,
@@ -150,17 +156,48 @@ class MediaRepository(
             return@withContext
         }
         val uri = Uri.parse(item.uri)
-        try {
+        val deleted = try {
             if (DocumentsContract.isDocumentUri(context, uri)) {
                 DocumentsContract.deleteDocument(context.contentResolver, uri)
             } else {
-                context.contentResolver.delete(uri, null, null)
+                context.contentResolver.delete(uri, null, null) > 0
             }
+        } catch (e: SecurityException) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                recoverableIntentSenderOrNull(e)?.let { throw DeletePermissionRequiredException(it) }
+            }
+            android.util.Log.w("MediaRepository", "deleteMediaFile failed: ${e.message}")
+            false
         } catch (e: Throwable) {
             android.util.Log.w("MediaRepository", "deleteMediaFile failed: ${e.message}")
+            false
         }
+        // Only drop the DB row when the file is actually gone — otherwise the item
+        // "ghosts" and a later rescan re-discovers the still-present file on disk.
+        if (!deleted) throw java.io.IOException("Falha ao apagar arquivo: ${item.fileName}")
         videoClipDao.getClipsForMediaOnce(item.id).forEach { videoClipDao.deleteClip(it) }
         mediaItemDao.deleteMediaItem(item)
+    }
+
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun recoverableIntentSenderOrNull(e: SecurityException): IntentSender? =
+        (e as? RecoverableSecurityException)?.userAction?.actionIntent?.intentSender
+
+    /**
+     * One combined OS consent dialog for multiple MediaStore items. Requesting several
+     * per-item RecoverableSecurityException PendingIntents back-to-back (one per file in a
+     * batch) causes them to collide/invalidate each other on some OEM builds — this is the
+     * documented, race-free way to ask for bulk delete consent (API 30+).
+     */
+    @RequiresApi(Build.VERSION_CODES.R)
+    fun createBatchDeleteRequest(items: List<MediaItem>): IntentSender =
+        MediaStore.createDeleteRequest(context.contentResolver, items.map { Uri.parse(it.uri) }).intentSender
+
+    suspend fun forgetDeletedMediaItems(items: List<MediaItem>) = withContext(Dispatchers.IO) {
+        items.forEach { item ->
+            videoClipDao.getClipsForMediaOnce(item.id).forEach { videoClipDao.deleteClip(it) }
+            mediaItemDao.deleteMediaItem(item)
+        }
     }
 
     suspend fun scanMediaFromFolder(folderUri: Uri) = withContext(Dispatchers.IO) {

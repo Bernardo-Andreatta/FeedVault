@@ -358,6 +358,32 @@ fun GalleryScreen(
         else downloadsPermLauncher.launch(mediaReadPermissions)
     }
 
+    val deleteConsentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) viewModel.retryPendingDelete()
+        else viewModel.dismissPendingDelete()
+    }
+    LaunchedEffect(uiState.pendingDeleteRequest) {
+        val pending = uiState.pendingDeleteRequest ?: return@LaunchedEffect
+        deleteConsentLauncher.launch(
+            androidx.activity.result.IntentSenderRequest.Builder(pending.intentSender).build()
+        )
+    }
+
+    val batchDeleteConsentLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) viewModel.confirmBatchDeleteGranted()
+        else viewModel.dismissPendingBatchDelete()
+    }
+    LaunchedEffect(uiState.pendingBatchDeleteRequest) {
+        val pending = uiState.pendingBatchDeleteRequest ?: return@LaunchedEffect
+        batchDeleteConsentLauncher.launch(
+            androidx.activity.result.IntentSenderRequest.Builder(pending.intentSender).build()
+        )
+    }
+
     var editingItem by remember { mutableStateOf<MediaItem?>(null) }
     var showTagEditor by remember { mutableStateOf(false) }
     var showPeopleEditor by remember { mutableStateOf(false) }
@@ -366,6 +392,10 @@ fun GalleryScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showBatchTagEditor by remember { mutableStateOf(false) }
     var showBatchPeopleEditor by remember { mutableStateOf(false) }
+    var showBatchRemoveTagEditor by remember { mutableStateOf(false) }
+    var showBatchRemovePeopleEditor by remember { mutableStateOf(false) }
+    var showTagMenu by remember { mutableStateOf(false) }
+    var showPeopleMenu by remember { mutableStateOf(false) }
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
     var showBatchRestoreConfirm by remember { mutableStateOf(false) }
     var showBatchLockConfirm by remember { mutableStateOf(false) }
@@ -805,7 +835,6 @@ fun GalleryScreen(
         }
     ) {
         Scaffold(
-            snackbarHost = { SnackbarHost(snackbarHostState) },
             floatingActionButton = {},
             topBar = {
                 Column {
@@ -1321,19 +1350,43 @@ fun GalleryScreen(
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.weight(1f)
                                 )
-                                Button(
-                                    onClick = { showBatchTagEditor = true },
-                                    enabled = uiState.selectedIds.isNotEmpty(),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                                ) {
-                                    Icon(Icons.Default.Label, contentDescription = "Tags", modifier = Modifier.size(18.dp))
+                                Box {
+                                    Button(
+                                        onClick = { showTagMenu = true },
+                                        enabled = uiState.selectedIds.isNotEmpty(),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Label, contentDescription = "Tags", modifier = Modifier.size(18.dp))
+                                    }
+                                    DropdownMenu(expanded = showTagMenu, onDismissRequest = { showTagMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text("Adicionar tags") },
+                                            onClick = { showTagMenu = false; showBatchTagEditor = true }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Remover tags") },
+                                            onClick = { showTagMenu = false; showBatchRemoveTagEditor = true }
+                                        )
+                                    }
                                 }
-                                Button(
-                                    onClick = { showBatchPeopleEditor = true },
-                                    enabled = uiState.selectedIds.isNotEmpty(),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-                                ) {
-                                    Icon(Icons.Default.Person, contentDescription = "Pessoas", modifier = Modifier.size(18.dp))
+                                Box {
+                                    Button(
+                                        onClick = { showPeopleMenu = true },
+                                        enabled = uiState.selectedIds.isNotEmpty(),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Person, contentDescription = "Pessoas", modifier = Modifier.size(18.dp))
+                                    }
+                                    DropdownMenu(expanded = showPeopleMenu, onDismissRequest = { showPeopleMenu = false }) {
+                                        DropdownMenuItem(
+                                            text = { Text("Adicionar pessoas") },
+                                            onClick = { showPeopleMenu = false; showBatchPeopleEditor = true }
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("Remover pessoas") },
+                                            onClick = { showPeopleMenu = false; showBatchRemovePeopleEditor = true }
+                                        )
+                                    }
                                 }
                                 if (uiState.vaultMode) {
                                     Button(
@@ -1498,6 +1551,32 @@ fun GalleryScreen(
             )
         }
 
+        if (showBatchRemoveTagEditor) {
+            val initialTags = remember(showBatchRemoveTagEditor) { viewModel.selectedTagsUnion() }
+            TagEditorDialog(
+                currentTags = initialTags,
+                allAvailableTags = uiState.allTags,
+                onConfirm = { finalTags ->
+                    viewModel.batchRemoveTags(initialTags - finalTags.toSet())
+                    showBatchRemoveTagEditor = false
+                },
+                onDismiss = { showBatchRemoveTagEditor = false }
+            )
+        }
+
+        if (showBatchRemovePeopleEditor) {
+            val initialPeople = remember(showBatchRemovePeopleEditor) { viewModel.selectedPeopleUnion() }
+            PeopleEditorDialog(
+                currentPeople = initialPeople,
+                allAvailablePeople = uiState.allPeople,
+                onConfirm = { finalPeople ->
+                    viewModel.batchRemovePeople(initialPeople - finalPeople.toSet())
+                    showBatchRemovePeopleEditor = false
+                },
+                onDismiss = { showBatchRemovePeopleEditor = false }
+            )
+        }
+
         if (showBatchDeleteConfirm) {
             val count = uiState.selectedIds.size
             androidx.compose.material3.AlertDialog(
@@ -1659,5 +1738,10 @@ fun GalleryScreen(
             }
         )
     }
+
+    SnackbarHost(
+        hostState = snackbarHostState,
+        modifier = Modifier.align(Alignment.BottomCenter)
+    )
     } // close outer Box
 }

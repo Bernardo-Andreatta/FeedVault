@@ -1,11 +1,13 @@
 package com.bernardo.feedvault.ui
 
 import android.content.Context
+import android.content.IntentSender
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.bernardo.feedvault.data.AppDatabase
 import com.bernardo.feedvault.util.normalizeForSearch
+import com.bernardo.feedvault.data.DeletePermissionRequiredException
 import com.bernardo.feedvault.data.MediaItem
 import com.bernardo.feedvault.data.MediaRepository
 import com.bernardo.feedvault.data.VideoClip
@@ -82,8 +84,16 @@ data class AppUiState(
     val vaultUnlocked: Boolean = false,
     val vaultBusy: Boolean = false,
     val vaultBusyMessage: String? = null,
-    val vaultBiometricEnabled: Boolean = false
+    val vaultBiometricEnabled: Boolean = false,
+    val pendingDeleteRequest: PendingDeleteRequest? = null,
+    val pendingBatchDeleteRequest: PendingBatchDeleteRequest? = null
 )
+
+/** Item awaiting one-time OS consent (Android 10+) before its file can actually be deleted. */
+data class PendingDeleteRequest(val item: MediaItem, val intentSender: IntentSender)
+
+/** Multiple items awaiting one combined OS consent dialog (Android 11+). */
+data class PendingBatchDeleteRequest(val items: List<MediaItem>, val intentSender: IntentSender)
 
 class GalleryViewModel(private val context: Context) : ViewModel() {
     private lateinit var repository: MediaRepository
@@ -523,7 +533,26 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     }
 
     fun deleteMediaItem(item: MediaItem) {
-        viewModelScope.launch { repository.deleteMediaFile(item) }
+        viewModelScope.launch {
+            try {
+                repository.deleteMediaFile(item)
+            } catch (e: DeletePermissionRequiredException) {
+                _uiState.value = _uiState.value.copy(pendingDeleteRequest = PendingDeleteRequest(item, e.intentSender))
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(errorMessage = "Não foi possível apagar \"${item.fileName}\".")
+            }
+        }
+    }
+
+    /** Called after the user grants OS delete consent from [PendingDeleteRequest]. */
+    fun retryPendingDelete() {
+        val pending = _uiState.value.pendingDeleteRequest ?: return
+        _uiState.value = _uiState.value.copy(pendingDeleteRequest = null)
+        deleteMediaItem(pending.item)
+    }
+
+    fun dismissPendingDelete() {
+        _uiState.value = _uiState.value.copy(pendingDeleteRequest = null)
     }
 
     fun updateClipTags(clipId: Long, tags: List<String>) {
@@ -616,9 +645,54 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     fun deleteSelectedMediaItems() {
         viewModelScope.launch {
             val toDelete = _uiState.value.allMedia.filter { it.id in _uiState.value.selectedIds }
-            toDelete.forEach { repository.deleteMediaFile(it) }
-            _uiState.value = _uiState.value.copy(selectedIds = emptySet(), isSelectionMode = false)
+            val remaining = mutableSetOf<Long>()
+            val needsConsent = mutableListOf<MediaItem>()
+            var failures = 0
+            toDelete.forEach { item ->
+                try {
+                    repository.deleteMediaFile(item)
+                } catch (e: DeletePermissionRequiredException) {
+                    remaining += item.id
+                    needsConsent += item
+                } catch (e: Exception) {
+                    remaining += item.id
+                    failures++
+                }
+            }
+            var batchPending: PendingBatchDeleteRequest? = null
+            if (needsConsent.isNotEmpty()) {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    batchPending = PendingBatchDeleteRequest(needsConsent, repository.createBatchDeleteRequest(needsConsent))
+                } else {
+                    failures += needsConsent.size
+                }
+            }
+            _uiState.value = _uiState.value.copy(
+                selectedIds = remaining,
+                isSelectionMode = remaining.isNotEmpty(),
+                pendingBatchDeleteRequest = batchPending,
+                errorMessage = if (failures > 0) "Falha ao apagar $failures ${if (failures == 1) "item" else "itens"}." else _uiState.value.errorMessage
+            )
         }
+    }
+
+    /** Called after the user grants the combined OS consent from [PendingBatchDeleteRequest]. */
+    fun confirmBatchDeleteGranted() {
+        val pending = _uiState.value.pendingBatchDeleteRequest ?: return
+        viewModelScope.launch {
+            repository.forgetDeletedMediaItems(pending.items)
+            val doneIds = pending.items.map { it.id }.toSet()
+            val stillSelected = _uiState.value.selectedIds - doneIds
+            _uiState.value = _uiState.value.copy(
+                pendingBatchDeleteRequest = null,
+                selectedIds = stillSelected,
+                isSelectionMode = stillSelected.isNotEmpty()
+            )
+        }
+    }
+
+    fun dismissPendingBatchDelete() {
+        _uiState.value = _uiState.value.copy(pendingBatchDeleteRequest = null)
     }
 
     fun batchAddTags(tags: List<String>) {
@@ -626,6 +700,15 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             _uiState.value.selectedIds.forEach { id ->
                 val item = _uiState.value.allMedia.firstOrNull { it.id == id } ?: return@forEach
                 repository.updateTags(id, (item.tags + tags).distinct())
+            }
+        }
+    }
+
+    fun batchRemoveTags(tags: List<String>) {
+        viewModelScope.launch {
+            _uiState.value.selectedIds.forEach { id ->
+                val item = _uiState.value.allMedia.firstOrNull { it.id == id } ?: return@forEach
+                repository.updateTags(id, item.tags - tags.toSet())
             }
         }
     }
@@ -650,6 +733,25 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             }
         }
     }
+
+    fun batchRemovePeople(people: List<String>) {
+        viewModelScope.launch {
+            _uiState.value.selectedIds.forEach { id ->
+                val item = _uiState.value.allMedia.firstOrNull { it.id == id } ?: return@forEach
+                repository.updatePeople(id, item.people - people.toSet())
+            }
+        }
+    }
+
+    fun selectedTagsUnion(): List<String> =
+        _uiState.value.selectedIds.flatMap { id ->
+            _uiState.value.allMedia.firstOrNull { it.id == id }?.tags ?: emptyList()
+        }.distinct()
+
+    fun selectedPeopleUnion(): List<String> =
+        _uiState.value.selectedIds.flatMap { id ->
+            _uiState.value.allMedia.firstOrNull { it.id == id }?.people ?: emptyList()
+        }.distinct()
 
     // ── Vault ("Cofre") ─────────────────────────────────────────────────────────
 
