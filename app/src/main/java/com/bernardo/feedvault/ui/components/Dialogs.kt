@@ -98,9 +98,9 @@ fun TagEditorDialog(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Editar Tags", style = MaterialTheme.typography.titleMedium)
+                Text("Edit Tags", style = MaterialTheme.typography.titleMedium)
                 Row {
-                    TextButton(onClick = onDismiss) { Text("Cancelar") }
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
                     Button(onClick = {
                         val finalTags = when {
                             existingMatch != null && existingMatch !in selectedTags -> selectedTags + existingMatch
@@ -108,7 +108,7 @@ fun TagEditorDialog(
                             else -> selectedTags
                         }
                         onConfirm(finalTags); onDismiss()
-                    }) { Text("Salvar") }
+                    }) { Text("Save") }
                 }
             }
 
@@ -134,7 +134,7 @@ fun TagEditorDialog(
                             )
                             Icon(
                                 Icons.Default.Close,
-                                contentDescription = "Remover",
+                                contentDescription = "Remove",
                                 modifier = Modifier
                                     .size(14.dp)
                                     .clickable { selectedTags = selectedTags - tag },
@@ -148,7 +148,7 @@ fun TagEditorDialog(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Buscar ou criar tag") },
+                label = { Text("Search or create tag") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -180,7 +180,7 @@ fun TagEditorDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                Text("Usar tag existente: \"$existingMatch\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                Text("Use existing tag: \"$existingMatch\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                             }
                             Divider()
                         }
@@ -196,7 +196,7 @@ fun TagEditorDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                Text("Criar tag: \"$trimmed\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                Text("Create tag: \"$trimmed\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                             }
                             Divider()
                         }
@@ -261,14 +261,14 @@ fun PeopleEditorDialog(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "Pessoas / Categorias",
+                    "People / Categories",
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 Row {
-                    TextButton(onClick = onDismiss) { Text("Cancelar") }
+                    TextButton(onClick = onDismiss) { Text("Cancel") }
                     Button(onClick = {
                         val finalPeople = when {
                             existingMatch != null && existingMatch !in selectedPeople -> selectedPeople + existingMatch
@@ -276,7 +276,7 @@ fun PeopleEditorDialog(
                             else -> selectedPeople
                         }
                         onConfirm(finalPeople); onDismiss()
-                    }) { Text("Salvar") }
+                    }) { Text("Save") }
                 }
             }
 
@@ -302,7 +302,7 @@ fun PeopleEditorDialog(
                             )
                             Icon(
                                 Icons.Default.Close,
-                                contentDescription = "Remover",
+                                contentDescription = "Remove",
                                 modifier = Modifier
                                     .size(14.dp)
                                     .clickable { selectedPeople = selectedPeople - person },
@@ -316,7 +316,7 @@ fun PeopleEditorDialog(
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
-                label = { Text("Buscar ou adicionar pessoa") },
+                label = { Text("Search or add person") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -348,7 +348,7 @@ fun PeopleEditorDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                Text("Usar pessoa existente: \"$existingMatch\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                Text("Use existing person: \"$existingMatch\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                             }
                             Divider()
                         }
@@ -364,7 +364,7 @@ fun PeopleEditorDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                                Text("Adicionar: \"$trimmed\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                                Text("Add: \"$trimmed\"", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                             }
                             Divider()
                         }
@@ -397,14 +397,14 @@ fun ManagePeopleDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Pessoas / Categorias") },
+        title = { Text("People / Categories") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (allPeople.isEmpty()) {
-                    Text("Nenhuma pessoa encontrada.", style = MaterialTheme.typography.bodyMedium)
+                    Text("No people found.", style = MaterialTheme.typography.bodyMedium)
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
                         items(allPeople) { person ->
@@ -424,10 +424,10 @@ fun ManagePeopleDialog(
                                         onRenamePerson(person, renameValue)
                                         renamingPerson = null
                                     }) {
-                                        Icon(Icons.Default.Done, contentDescription = "Confirmar", tint = MaterialTheme.colorScheme.primary)
+                                        Icon(Icons.Default.Done, contentDescription = "Confirm", tint = MaterialTheme.colorScheme.primary)
                                     }
                                     IconButton(onClick = { renamingPerson = null }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Cancelar")
+                                        Icon(Icons.Default.Close, contentDescription = "Cancel")
                                     }
                                 }
                             } else {
@@ -445,10 +445,10 @@ fun ManagePeopleDialog(
                                         renamingPerson = person
                                         renameValue = person
                                     }) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Renomear")
+                                        Icon(Icons.Default.Edit, contentDescription = "Rename")
                                     }
                                     IconButton(onClick = { onDeletePerson(person) }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Deletar", tint = MaterialTheme.colorScheme.error)
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
@@ -458,7 +458,7 @@ fun ManagePeopleDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) { Text("Fechar") }
+            Button(onClick = onDismiss) { Text("Close") }
         }
     )
 }
@@ -506,14 +506,14 @@ fun ManageTagsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Gerenciar Tags") },
+        title = { Text("Manage Tags") },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (allTags.isEmpty()) {
-                    Text("Nenhuma tag encontrada.", style = MaterialTheme.typography.bodyMedium)
+                    Text("No tags found.", style = MaterialTheme.typography.bodyMedium)
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
                         items(allTags) { tag ->
@@ -533,10 +533,10 @@ fun ManageTagsDialog(
                                         onRenameTag(tag, renameValue)
                                         renamingTag = null
                                     }) {
-                                        Icon(Icons.Default.Done, contentDescription = "Confirmar", tint = MaterialTheme.colorScheme.primary)
+                                        Icon(Icons.Default.Done, contentDescription = "Confirm", tint = MaterialTheme.colorScheme.primary)
                                     }
                                     IconButton(onClick = { renamingTag = null }) {
-                                        Icon(Icons.Default.Close, contentDescription = "Cancelar")
+                                        Icon(Icons.Default.Close, contentDescription = "Cancel")
                                     }
                                 }
                             } else {
@@ -554,10 +554,10 @@ fun ManageTagsDialog(
                                         renamingTag = tag
                                         renameValue = tag
                                     }) {
-                                        Icon(Icons.Default.Edit, contentDescription = "Renomear")
+                                        Icon(Icons.Default.Edit, contentDescription = "Rename")
                                     }
                                     IconButton(onClick = { onDeleteTag(tag) }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Deletar", tint = MaterialTheme.colorScheme.error)
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.error)
                                     }
                                 }
                             }
@@ -569,13 +569,13 @@ fun ManageTagsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) {
-                        Text("Deletar Todas as Tags")
+                        Text("Delete All Tags")
                     }
                 }
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) { Text("Fechar") }
+            Button(onClick = onDismiss) { Text("Close") }
         }
     )
 }

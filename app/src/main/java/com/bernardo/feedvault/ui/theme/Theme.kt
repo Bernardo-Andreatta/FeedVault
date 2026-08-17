@@ -160,21 +160,21 @@ object ThemeController {
     /** Preset swatches surfaced in Settings (color to label). */
     val backgroundPresets = listOf(
         Ink to "Ink",
-        Color(0xFF000000) to "Preto",
-        Color(0xFF15171C) to "Carvão",
-        Color(0xFF1A2027) to "Ardósia",
-        Color(0xFF0C1320) to "Marinho",
-        Color(0xFF161118) to "Ameixa"
+        Color(0xFF000000) to "Black",
+        Color(0xFF15171C) to "Charcoal",
+        Color(0xFF1A2027) to "Slate",
+        Color(0xFF0C1320) to "Navy",
+        Color(0xFF161118) to "Plum"
     )
     val accentPresets = listOf(
         Brass to "Brass",
-        Steel to "Aço",
-        FavoriteRose to "Rosa",
-        Color(0xFF3FB984) to "Esmeralda",
-        Color(0xFF4FA3E3) to "Céu",
-        Color(0xFF9B7BE0) to "Violeta",
-        Color(0xFFE0902F) to "Âmbar",
-        Color(0xFFD9594C) to "Carmim"
+        Steel to "Steel",
+        FavoriteRose to "Rose",
+        Color(0xFF3FB984) to "Emerald",
+        Color(0xFF4FA3E3) to "Sky",
+        Color(0xFF9B7BE0) to "Violet",
+        Color(0xFFE0902F) to "Amber",
+        Color(0xFFD9594C) to "Crimson"
     )
 
     private fun prefs(context: Context) =

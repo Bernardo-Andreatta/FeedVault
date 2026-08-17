@@ -44,7 +44,7 @@ import com.bernardo.feedvault.ui.GalleryViewModel
 import javax.crypto.Cipher
 
 /**
- * Full-screen gate shown when the Cofre is selected but locked. Handles first-run
+ * Full-screen gate shown when the Vault is selected but locked. Handles first-run
  * password setup and unlock (password or biometric). Once unlocked the gallery
  * underneath shows the encrypted mirror, so this composable is dismissed.
  */
@@ -86,34 +86,34 @@ private fun VaultSetup(viewModel: GalleryViewModel) {
     ) {
         Icon(Icons.Default.Shield, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(16.dp))
-        Text("Criar o Cofre", style = MaterialTheme.typography.headlineSmall)
+        Text("Create the Vault", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(8.dp))
         Text(
-            "Defina uma senha para criptografar a mídia. Ela não pode ser recuperada — se esquecer a senha, os arquivos do cofre são perdidos para sempre.",
+            "Set a password to encrypt the media. It cannot be recovered — if you forget the password, the vault files are lost forever.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(20.dp))
         OutlinedTextField(
-            value = pw, onValueChange = { pw = it }, label = { Text("Senha") },
+            value = pw, onValueChange = { pw = it }, label = { Text("Password") },
             visualTransformation = PasswordVisualTransformation(), singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
-            value = confirm, onValueChange = { confirm = it }, label = { Text("Confirmar senha") },
+            value = confirm, onValueChange = { confirm = it }, label = { Text("Confirm password") },
             visualTransformation = PasswordVisualTransformation(), singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
         Spacer(Modifier.height(20.dp))
         Button(
             onClick = {
-                if (pw != confirm) viewModel.setError("As senhas não coincidem")
+                if (pw != confirm) viewModel.setError("Passwords don't match")
                 else viewModel.vaultSetupPassword(pw)
             },
             enabled = pw.isNotBlank() && confirm.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
-        ) { Text("Criar cofre") }
+        ) { Text("Create vault") }
     }
 }
 
@@ -133,10 +133,10 @@ private fun VaultUnlock(state: AppUiState, viewModel: GalleryViewModel, context:
     ) {
         Icon(Icons.Default.Lock, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.secondary)
         Spacer(Modifier.height(16.dp))
-        Text("Cofre bloqueado", style = MaterialTheme.typography.headlineSmall)
+        Text("Vault locked", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(20.dp))
         OutlinedTextField(
-            value = pw, onValueChange = { pw = it }, label = { Text("Senha") },
+            value = pw, onValueChange = { pw = it }, label = { Text("Password") },
             visualTransformation = PasswordVisualTransformation(), singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
@@ -145,7 +145,7 @@ private fun VaultUnlock(state: AppUiState, viewModel: GalleryViewModel, context:
             onClick = { viewModel.vaultUnlockPassword(pw) },
             enabled = pw.isNotBlank(),
             modifier = Modifier.fillMaxWidth()
-        ) { Text("Desbloquear") }
+        ) { Text("Unlock") }
         if (canBiometric) {
             Spacer(Modifier.height(12.dp))
             OutlinedButton(
@@ -154,7 +154,7 @@ private fun VaultUnlock(state: AppUiState, viewModel: GalleryViewModel, context:
             ) {
                 Icon(Icons.Default.Fingerprint, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Usar biometria")
+                Text("Use biometrics")
             }
         }
     }
@@ -170,18 +170,18 @@ fun biometricAvailable(context: Context): Boolean =
 private fun tryBiometricUnlock(context: Context, viewModel: GalleryViewModel) {
     val activity = context as? FragmentActivity ?: return
     val cipher = viewModel.vaultBiometricDecryptCipher() ?: run {
-        viewModel.setError("Biometria indisponível — use a senha"); return
+        viewModel.setError("Biometrics unavailable — use the password"); return
     }
-    authenticate(activity, "Desbloquear o cofre", cipher,
+    authenticate(activity, "Unlock the vault", cipher,
         onSuccess = { viewModel.vaultCompleteBiometricUnlock(it) }, onError = {})
 }
 
 fun enableVaultBiometric(context: Context, viewModel: GalleryViewModel) {
     val activity = context as? FragmentActivity ?: return
     val cipher = viewModel.vaultBiometricEncryptCipher() ?: run {
-        viewModel.setError("Não foi possível preparar a biometria"); return
+        viewModel.setError("Could not prepare biometrics"); return
     }
-    authenticate(activity, "Ativar desbloqueio por biometria", cipher,
+    authenticate(activity, "Enable biometric unlock", cipher,
         onSuccess = { viewModel.vaultCompleteEnableBiometric(it) },
         onError = { msg -> viewModel.setError(msg) })
 }
@@ -205,7 +205,7 @@ private fun authenticate(
     })
     val info = BiometricPrompt.PromptInfo.Builder()
         .setTitle(title)
-        .setNegativeButtonText("Cancelar")
+        .setNegativeButtonText("Cancel")
         .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
         .build()
     prompt.authenticate(info, BiometricPrompt.CryptoObject(cipher))

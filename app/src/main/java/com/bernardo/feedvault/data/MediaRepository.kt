@@ -174,7 +174,7 @@ class MediaRepository(
         }
         // Only drop the DB row when the file is actually gone — otherwise the item
         // "ghosts" and a later rescan re-discovers the still-present file on disk.
-        if (!deleted) throw java.io.IOException("Falha ao apagar arquivo: ${item.fileName}")
+        if (!deleted) throw java.io.IOException("Failed to delete file: ${item.fileName}")
         videoClipDao.getClipsForMediaOnce(item.id).forEach { videoClipDao.deleteClip(it) }
         mediaItemDao.deleteMediaItem(item)
     }
@@ -396,7 +396,7 @@ class MediaRepository(
             else -> mediaItemDao.getAllMediaItems()
         }
 
-        // Será usado com Flow, então retornar empty list aqui como fallback
+        // Will be used with Flow, so return an empty list here as fallback
         emptyList()
     }
 

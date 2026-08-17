@@ -160,6 +160,7 @@ import com.bernardo.feedvault.data.VideoClip
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -739,7 +740,7 @@ fun MediaPost(
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            "Adicionar tag",
+                            "Add tag",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
@@ -770,7 +771,7 @@ fun MediaPost(
                                 ) {
                                     Icon(
                                         Icons.Default.Close,
-                                        contentDescription = "Remover $tag",
+                                        contentDescription = "Remove $tag",
                                         tint = Color.White,
                                         modifier = Modifier.size(10.dp)
                                     )
@@ -835,7 +836,7 @@ fun MediaPost(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Edit,
-                                contentDescription = "Editar tags",
+                                contentDescription = "Edit tags",
                                 tint = if (tagEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -847,7 +848,7 @@ fun MediaPost(
                     ) {
                         Icon(
                             imageVector = if (item.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorito",
+                            contentDescription = "Favorite",
                             tint = if (item.isFavorite) FavoriteRose else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
@@ -858,7 +859,7 @@ fun MediaPost(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Person,
-                            contentDescription = "Pessoas",
+                            contentDescription = "People",
                             tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
@@ -870,7 +871,7 @@ fun MediaPost(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Restore,
-                                contentDescription = "Restaurar à galeria",
+                                contentDescription = "Restore to gallery",
                                 tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -882,7 +883,7 @@ fun MediaPost(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Lock,
-                                contentDescription = "Mover para o cofre",
+                                contentDescription = "Move to vault",
                                 tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -894,7 +895,7 @@ fun MediaPost(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Delete,
-                            contentDescription = "Deletar",
+                            contentDescription = "Delete",
                             tint = MaterialTheme.colorScheme.error.copy(alpha = 0.75f),
                             modifier = Modifier.size(20.dp)
                         )
@@ -917,26 +918,26 @@ fun MediaPost(
     if (showRestoreConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showRestoreConfirm = false },
-            title = { Text("Restaurar à galeria?") },
-            text = { Text("O arquivo será devolvido à pasta original na galeria e removido do cofre.") },
+            title = { Text("Restore to gallery?") },
+            text = { Text("The file will be returned to its original folder in the gallery and removed from the vault.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restaurar") }
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restore") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancelar") }
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancel") }
             }
         )
     }
     if (showLockConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showLockConfirm = false },
-            title = { Text("Mover para o cofre?") },
-            text = { Text("O arquivo sai da galeria e fica guardado no app, protegido por senha. Use Restaurar para devolvê-lo ao mesmo lugar.") },
+            title = { Text("Move to vault?") },
+            text = { Text("The file leaves the gallery and is kept in the app, protected by a password. Use Restore to return it to the same place.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Mover ao cofre") }
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Move to vault") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancelar") }
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancel") }
             }
         )
     }
@@ -976,6 +977,8 @@ fun VideoPlayer(
     var embedSeekHint by remember(uri) { mutableStateOf<SeekHint?>(null) }
     var embedSeekAccumMs by remember(uri) { mutableStateOf(0L) }
     var pendingSeekMs by remember(uri) { mutableStateOf(0L) }
+    var holdSpeedActive by remember(uri) { mutableStateOf(false) }
+    var holdSpeedIsLeft by remember(uri) { mutableStateOf(false) }
     var itemVisible by remember { mutableStateOf(true) }
     val exoPlayerRef = remember(uri) { mutableStateOf<ExoPlayer?>(null) }
     val exoPlayer = exoPlayerRef.value
@@ -1293,6 +1296,48 @@ fun VideoPlayer(
             .height(finalH)
             .pointerInput(uri) {
                 detectTapGestures(
+                    onPress = { offset ->
+                        val p = exoPlayerRef.value
+                        if (p != null) {
+                            val isLeft = offset.x < size.width / 2f
+                            // Not a hold: if released before the long-press threshold, let
+                            // onTap/onDoubleTap handle it below — don't touch playback here.
+                            val releasedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { tryAwaitRelease() }
+                            if (releasedEarly == null) {
+                                val wasPlaying = p.isPlaying
+                                holdSpeedIsLeft = isLeft
+                                holdSpeedActive = true
+                                coroutineScope {
+                                    val job = launch {
+                                        if (isLeft) {
+                                            // No negative playback speed in ExoPlayer — simulate
+                                            // 2x rewind by jumping back 200ms every 100ms.
+                                            p.pause()
+                                            while (isActive) {
+                                                val next = (p.currentPosition - 200L).coerceAtLeast(0L)
+                                                p.seekTo(next)
+                                                currentPosition = next
+                                                if (next <= 0L) break
+                                                delay(100)
+                                            }
+                                        } else {
+                                            p.setPlaybackSpeed(2f)
+                                            if (!p.isPlaying) p.play()
+                                        }
+                                    }
+                                    tryAwaitRelease()
+                                    job.cancel()
+                                }
+                                if (isLeft) {
+                                    if (wasPlaying) p.play() else p.pause()
+                                } else {
+                                    p.setPlaybackSpeed(1f)
+                                    if (!wasPlaying) p.pause()
+                                }
+                                holdSpeedActive = false
+                            }
+                        }
+                    },
                     onTap = {
                         if (exoPlayerRef.value == null) {
                             ensurePlayerAndSeek(pendingSeekMs)
@@ -1375,6 +1420,26 @@ fun VideoPlayer(
             ) {
                 Text(
                     text = hint.text,
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                        .padding(12.dp)
+                )
+            }
+        }
+
+        // Hold-to-2x indicator (rewind on the left, advance on the right)
+        if (holdSpeedActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.5f)
+                    .align(if (holdSpeedIsLeft) Alignment.CenterStart else Alignment.CenterEnd),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (holdSpeedIsLeft) "◀◀ 2x" else "▶▶ 2x",
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier
@@ -1540,7 +1605,7 @@ fun VideoPlayer(
             ) {
                 Icon(
                     imageVector = if (PlaybackSession.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                    contentDescription = if (PlaybackSession.muted) "Ativar som" else "Desativar som",
+                    contentDescription = if (PlaybackSession.muted) "Unmute" else "Mute",
                     tint = Color.White,
                     modifier = Modifier.size(14.dp)
                 )
@@ -1717,7 +1782,7 @@ fun FullscreenVideoOverlay(
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.6f))
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
         }
 
         if (items.size > 1) {
@@ -1772,6 +1837,8 @@ fun FullscreenVideoPage(
     var showScrubPreview by remember { mutableStateOf(false) }
     var seekHint by remember { mutableStateOf<SeekHint?>(null) }
     var seekAccumMs by remember { mutableStateOf(0L) }
+    var holdSpeedActive by remember { mutableStateOf(false) }
+    var holdSpeedIsLeft by remember { mutableStateOf(false) }
     var isFavorite by remember(mediaItem.id) { mutableStateOf(mediaItem.isFavorite) }
     var showMetaPanel by remember { mutableStateOf(false) }
     var showTagEditor by remember { mutableStateOf(false) }
@@ -2047,6 +2114,47 @@ fun FullscreenVideoPage(
             }
             .pointerInput(Unit) {
                 detectTapGestures(
+                    onPress = { offset ->
+                        if (zoomScale <= 1f && !clipMode) {
+                            val isLeft = offset.x < size.width / 2f
+                            // Not a hold: if released before the long-press threshold, let
+                            // onTap/onDoubleTap handle it below — don't touch playback here.
+                            val releasedEarly = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) { tryAwaitRelease() }
+                            if (releasedEarly == null) {
+                                val wasPlaying = exoPlayer.isPlaying
+                                holdSpeedIsLeft = isLeft
+                                holdSpeedActive = true
+                                coroutineScope {
+                                    val job = launch {
+                                        if (isLeft) {
+                                            // No negative playback speed in ExoPlayer — simulate
+                                            // 2x rewind by jumping back 200ms every 100ms.
+                                            exoPlayer.pause()
+                                            while (isActive) {
+                                                val next = (exoPlayer.currentPosition - 200L).coerceAtLeast(0L)
+                                                exoPlayer.seekTo(next)
+                                                currentPosition = next
+                                                if (next <= 0L) break
+                                                delay(100)
+                                            }
+                                        } else {
+                                            exoPlayer.setPlaybackSpeed(2f)
+                                            if (!exoPlayer.isPlaying) exoPlayer.play()
+                                        }
+                                    }
+                                    tryAwaitRelease()
+                                    job.cancel()
+                                }
+                                if (isLeft) {
+                                    if (wasPlaying) exoPlayer.play() else exoPlayer.pause()
+                                } else {
+                                    exoPlayer.setPlaybackSpeed(1f)
+                                    if (!wasPlaying) exoPlayer.pause()
+                                }
+                                holdSpeedActive = false
+                            }
+                        }
+                    },
                     onTap = { if (showMetaPanel) showMetaPanel = false else if (!clipMode) showControls = !showControls },
                     onDoubleTap = { offset ->
                         if (zoomScale > 1f) {
@@ -2105,6 +2213,26 @@ fun FullscreenVideoPage(
             ) {
                 Text(
                     text = hint.text,
+                    color = Color.White,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                        .padding(20.dp)
+                )
+            }
+        }
+
+        // Hold-to-2x indicator (rewind on the left, advance on the right)
+        if (holdSpeedActive) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.5f)
+                    .align(if (holdSpeedIsLeft) Alignment.CenterStart else Alignment.CenterEnd),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (holdSpeedIsLeft) "◀◀ 2x" else "▶▶ 2x",
                     color = Color.White,
                     style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier
@@ -2188,7 +2316,7 @@ fun FullscreenVideoPage(
                 ) {
                     Icon(
                         imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = if (isFavorite) "Remover favorito" else "Favoritar",
+                        contentDescription = if (isFavorite) "Remove favorite" else "Favorite",
                         tint = if (isFavorite) FavoriteRose else Color.White,
                         modifier = Modifier.size(22.dp)
                     )
@@ -2213,7 +2341,7 @@ fun FullscreenVideoPage(
                 ) {
                     Icon(
                         imageVector = if (PlaybackSession.muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                        contentDescription = if (PlaybackSession.muted) "Ativar som" else "Desativar som",
+                        contentDescription = if (PlaybackSession.muted) "Unmute" else "Mute",
                         tint = Color.White,
                         modifier = Modifier.size(22.dp)
                     )
@@ -2263,7 +2391,7 @@ fun FullscreenVideoPage(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Edit,
-                        contentDescription = "Pessoas e tags",
+                        contentDescription = "People and tags",
                         tint = Color.White,
                         modifier = Modifier.size(22.dp)
                     )
@@ -2297,7 +2425,7 @@ fun FullscreenVideoPage(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCut,
-                                contentDescription = "Início do clipe",
+                                contentDescription = "Clip start",
                                 tint = if (clipStart != null) MaterialTheme.colorScheme.primary else Color.White,
                                 modifier = Modifier
                                     .size(22.dp)
@@ -2324,7 +2452,7 @@ fun FullscreenVideoPage(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.ContentCut,
-                                contentDescription = "Fim do clipe",
+                                contentDescription = "Clip end",
                                 tint = if (clipEnd != null) MaterialTheme.colorScheme.primary else Color.White,
                                 modifier = Modifier.size(22.dp)
                             )
@@ -2376,7 +2504,7 @@ fun FullscreenVideoPage(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Check,
-                                    contentDescription = "Salvar",
+                                    contentDescription = "Save",
                                     tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(22.dp)
                                 )
@@ -2453,7 +2581,7 @@ fun FullscreenVideoPage(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Deletar",
+                        contentDescription = "Delete",
                         tint = Color(0xFFEF9A9A),
                         modifier = Modifier.size(20.dp)
                     )
@@ -2475,7 +2603,7 @@ fun FullscreenVideoPage(
                 ) {
                     Icon(
                         imageVector = if (mediaItem.encrypted) Icons.Default.Restore else Icons.Default.Lock,
-                        contentDescription = if (mediaItem.encrypted) "Restaurar à galeria" else "Mover para o cofre",
+                        contentDescription = if (mediaItem.encrypted) "Restore to gallery" else "Move to vault",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)
                     )
@@ -2572,13 +2700,13 @@ fun FullscreenVideoPage(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                "PESSOAS / CATEGORIAS",
+                                "PEOPLE / CATEGORIES",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White.copy(alpha = 0.45f)
                             )
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "Editar pessoas / categorias",
+                                contentDescription = "Edit people / categories",
                                 tint = Color.White.copy(alpha = 0.45f),
                                 modifier = Modifier.size(14.dp)
                             )
@@ -2586,7 +2714,7 @@ fun FullscreenVideoPage(
                         val people = localPeople.filter { it.isNotBlank() }
                         if (people.isEmpty()) {
                             Text(
-                                "Nenhuma — toque para adicionar",
+                                "None — tap to add",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.25f),
                                 modifier = Modifier.clickable { showPeopleEditor = true }
@@ -2616,7 +2744,7 @@ fun FullscreenVideoPage(
                             )
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "Editar tags",
+                                contentDescription = "Edit tags",
                                 tint = Color.White.copy(alpha = 0.45f),
                                 modifier = Modifier.size(14.dp)
                             )
@@ -2624,7 +2752,7 @@ fun FullscreenVideoPage(
                         val tags = localTags.filter { it.isNotBlank() }
                         if (tags.isEmpty()) {
                             Text(
-                                "Nenhuma tag — toque para adicionar",
+                                "No tags — tap to add",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.White.copy(alpha = 0.25f),
                                 modifier = Modifier.clickable { showTagEditor = true }
@@ -2669,26 +2797,26 @@ fun FullscreenVideoPage(
     if (showLockConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showLockConfirm = false },
-            title = { Text("Mover para o cofre?") },
-            text = { Text("O arquivo sai da galeria e fica guardado no app, protegido por senha. Use Restaurar para devolvê-lo ao mesmo lugar.") },
+            title = { Text("Move to vault?") },
+            text = { Text("The file leaves the gallery and is kept in the app, protected by a password. Use Restore to return it to the same place.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Mover ao cofre") }
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Move to vault") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancelar") }
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancel") }
             }
         )
     }
     if (showRestoreConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showRestoreConfirm = false },
-            title = { Text("Restaurar à galeria?") },
-            text = { Text("O arquivo será devolvido à pasta original na galeria e removido do cofre.") },
+            title = { Text("Restore to gallery?") },
+            text = { Text("The file will be returned to its original folder in the gallery and removed from the vault.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restaurar") }
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restore") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancelar") }
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancel") }
             }
         )
     }
@@ -2828,15 +2956,15 @@ private fun ReelFrameStrip(imageBitmaps: List<ImageBitmap>) {
 private fun DeleteConfirmDialog(fileName: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Deletar arquivo?") },
-        text = { Text("\"$fileName\" será removido permanentemente do dispositivo.") },
+        title = { Text("Delete file?") },
+        text = { Text("\"$fileName\" will be permanently removed from the device.") },
         confirmButton = {
             TextButton(onClick = { onDismiss(); onConfirm() }) {
-                Text("Deletar", color = MaterialTheme.colorScheme.error)
+                Text("Delete", color = MaterialTheme.colorScheme.error)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancelar") }
+            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
     )
 }
@@ -3100,18 +3228,18 @@ private fun FullscreenImagePage(
                 .padding(top = 56.dp, start = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            FsControlButton(Icons.Default.Edit, "Editar") { showEditMenu = true }
+            FsControlButton(Icons.Default.Edit, "Edit") { showEditMenu = true }
             FsControlButton(
                 if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                "Favorito",
+                "Favorite",
                 tint = if (isFavorite) FavoriteRose else Color.White
             ) { isFavorite = !isFavorite; onToggleFavorite() }
             if (mediaItem.encrypted) {
-                FsControlButton(Icons.Default.Restore, "Restaurar à galeria") { showRestoreConfirm = true }
+                FsControlButton(Icons.Default.Restore, "Restore to gallery") { showRestoreConfirm = true }
             } else {
-                FsControlButton(Icons.Default.Lock, "Mover para o cofre") { showLockConfirm = true }
+                FsControlButton(Icons.Default.Lock, "Move to vault") { showLockConfirm = true }
             }
-            FsControlButton(Icons.Default.Delete, "Deletar", tint = Color(0xFFEF9A9A)) { showDeleteConfirm = true }
+            FsControlButton(Icons.Default.Delete, "Delete", tint = Color(0xFFEF9A9A)) { showDeleteConfirm = true }
         }
         }
 
@@ -3126,13 +3254,13 @@ private fun FullscreenImagePage(
             ) {
                 Column {
                     Text(
-                        "Editar tags", color = Color.White, style = MaterialTheme.typography.bodyMedium,
+                        "Edit tags", color = Color.White, style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier
                             .clickable { showEditMenu = false; showTagEditor = true }
                             .padding(horizontal = 16.dp, vertical = 10.dp)
                     )
                     Text(
-                        "Editar pessoas / categorias", color = Color.White, style = MaterialTheme.typography.bodyMedium,
+                        "Edit people / categories", color = Color.White, style = MaterialTheme.typography.bodyMedium,
                         modifier = Modifier
                             .clickable { showEditMenu = false; showPeopleEditor = true }
                             .padding(horizontal = 16.dp, vertical = 10.dp)
@@ -3170,26 +3298,26 @@ private fun FullscreenImagePage(
     if (showLockConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showLockConfirm = false },
-            title = { Text("Mover para o cofre?") },
-            text = { Text("O arquivo sai da galeria e fica guardado no app, protegido por senha. Use Restaurar para devolvê-lo ao mesmo lugar.") },
+            title = { Text("Move to vault?") },
+            text = { Text("The file leaves the gallery and is kept in the app, protected by a password. Use Restore to return it to the same place.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Mover ao cofre") }
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false; onLock() }) { Text("Move to vault") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancelar") }
+                androidx.compose.material3.TextButton(onClick = { showLockConfirm = false }) { Text("Cancel") }
             }
         )
     }
     if (showRestoreConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showRestoreConfirm = false },
-            title = { Text("Restaurar à galeria?") },
-            text = { Text("O arquivo será devolvido à pasta original na galeria e removido do cofre.") },
+            title = { Text("Restore to gallery?") },
+            text = { Text("The file will be returned to its original folder in the gallery and removed from the vault.") },
             confirmButton = {
-                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restaurar") }
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false; onRestore() }) { Text("Restore") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancelar") }
+                androidx.compose.material3.TextButton(onClick = { showRestoreConfirm = false }) { Text("Cancel") }
             }
         )
     }
@@ -3268,7 +3396,7 @@ fun ImageFullscreenDialog(uri: String, onDismiss: () -> Unit) {
                     .clip(CircleShape)
                     .background(Color.Black.copy(alpha = 0.6f))
             ) {
-                Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
             }
         }
     }
@@ -3436,8 +3564,8 @@ fun EmptyStateView(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.padding(horizontal = 32.dp)
         ) {
-            Text("Nenhuma mídia encontrada", style = MaterialTheme.typography.headlineSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Text("Selecione uma pasta com fotos e vídeos", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("No media found", style = MaterialTheme.typography.headlineSmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text("Select a folder with photos and videos", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
     }
 }
@@ -3450,7 +3578,7 @@ fun LoadingView(modifier: Modifier = Modifier) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             CircularProgressIndicator()
-            Text("Carregando mídia...")
+            Text("Loading media...")
         }
     }
 }

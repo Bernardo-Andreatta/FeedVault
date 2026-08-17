@@ -4,7 +4,7 @@ import java.text.Normalizer
 
 /**
  * Lowercases and strips diacritics (accents) so search ignores them:
- * "maçã" and "maca" both normalize to "maca".
+ * "café" and "cafe" both normalize to "cafe".
  */
 fun String.normalizeForSearch(): String =
     Normalizer.normalize(this, Normalizer.Form.NFD)

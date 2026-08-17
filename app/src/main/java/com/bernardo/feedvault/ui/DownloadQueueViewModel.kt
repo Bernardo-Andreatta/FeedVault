@@ -58,12 +58,12 @@ class DownloadQueueViewModel(context: Context) : ViewModel() {
                 it.copy(
                     status = if (ok) DownloadStatus.DONE else DownloadStatus.FAILED,
                     progress = if (ok) 1f else it.progress,
-                    error = if (!ok) "Falha ao salvar" else null
+                    error = if (!ok) "Failed to save" else null
                 )
             }
         } catch (e: Exception) {
             updateItem(item.id) {
-                it.copy(status = DownloadStatus.FAILED, error = e.message ?: "Erro desconhecido")
+                it.copy(status = DownloadStatus.FAILED, error = e.message ?: "Unknown error")
             }
         }
     }

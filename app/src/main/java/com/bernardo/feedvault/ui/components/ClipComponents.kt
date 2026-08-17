@@ -132,9 +132,9 @@ fun ClipsFeed(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Nenhum clipe criado", style = MaterialTheme.typography.headlineSmall)
+                Text("No clips created", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Abra um vídeo em tela cheia e use ✂ para criar clipes",
+                    "Open a video in fullscreen and use ✂ to create clips",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -273,7 +273,7 @@ fun ClipCard(
                                 .clickable { showTagEditor = true }
                                 .padding(horizontal = 10.dp, vertical = 4.dp)
                         ) {
-                            Text("Adicionar tag", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                            Text("Add tag", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer)
                         }
                     } else {
                         tags.forEach { tag ->
@@ -299,7 +299,7 @@ fun ClipCard(
                                             .clickable { onUpdateTags(clip.tags - tag) },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Default.Close, contentDescription = "Remover $tag", tint = Color.White, modifier = Modifier.size(10.dp))
+                                        Icon(Icons.Default.Close, contentDescription = "Remove $tag", tint = Color.White, modifier = Modifier.size(10.dp))
                                     }
                                 }
                             } else {
@@ -334,7 +334,7 @@ fun ClipCard(
                     IconButton(onClick = onGoToOriginal, modifier = Modifier.size(32.dp)) {
                         Icon(
                             Icons.Default.Photo,
-                            contentDescription = "Ver original na galeria",
+                            contentDescription = "View original in gallery",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
                         )
@@ -343,7 +343,7 @@ fun ClipCard(
                         IconButton(onClick = { tagEditMode = !tagEditMode }, modifier = Modifier.size(32.dp)) {
                             Icon(
                                 Icons.Default.Edit,
-                                contentDescription = "Editar tags",
+                                contentDescription = "Edit tags",
                                 tint = if (tagEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(18.dp)
                             )
@@ -352,13 +352,13 @@ fun ClipCard(
                     IconButton(onClick = onToggleFavorite, modifier = Modifier.size(32.dp)) {
                         Icon(
                             imageVector = if (clip.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorito",
+                            contentDescription = "Favorite",
                             tint = if (clip.isFavorite) FavoriteRose else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                     IconButton(onClick = { showDeleteConfirm = true }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Excluir clipe", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                        Icon(Icons.Default.Delete, contentDescription = "Delete clip", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                     }
                 }
             }
@@ -368,16 +368,16 @@ fun ClipCard(
     if (showDeleteConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Excluir clipe?") },
-            text = { Text("Esta ação não pode ser desfeita.") },
+            title = { Text("Delete clip?") },
+            text = { Text("This action cannot be undone.") },
             confirmButton = {
                 androidx.compose.material3.TextButton(
                     onClick = { showDeleteConfirm = false; onDelete() },
                     colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("Excluir") }
+                ) { Text("Delete") }
             },
             dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancelar") }
+                androidx.compose.material3.TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
             }
         )
     }
@@ -466,7 +466,7 @@ fun ClipFullscreenOverlay(
                 .clip(CircleShape)
                 .background(Color.Black.copy(alpha = 0.6f))
         ) {
-            Icon(Icons.Default.Close, contentDescription = "Fechar", tint = Color.White)
+            Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
         }
 
         if (clips.size > 1) {
@@ -753,7 +753,7 @@ private fun ClipFullscreenPage(
                     ) {
                         Icon(
                             imageVector = if (clip.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = "Favorito",
+                            contentDescription = "Favorite",
                             tint = if (clip.isFavorite) FavoriteRose else Color.White,
                             modifier = Modifier.size(22.dp)
                         )

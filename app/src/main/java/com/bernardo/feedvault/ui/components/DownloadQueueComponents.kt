@@ -167,7 +167,7 @@ fun DownloadQueueSheet(
                 Text("Downloads", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
                 if (items.any { it.status == DownloadStatus.DONE }) {
                     TextButton(onClick = onDismissCompleted) {
-                        Text("Limpar concluídos", style = MaterialTheme.typography.labelMedium)
+                        Text("Clear completed", style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -177,7 +177,7 @@ fun DownloadQueueSheet(
                     modifier = Modifier.fillMaxWidth().height(100.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("Nenhum download", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("No downloads", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 LazyColumn(
@@ -285,14 +285,14 @@ private fun DownloadItemCard(
                 when (item.status) {
                     DownloadStatus.FAILED -> {
                         IconButton(onClick = onRetry, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Tentar novamente", modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Refresh, contentDescription = "Try again", modifier = Modifier.size(18.dp))
                         }
                         IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Close, contentDescription = "Remover", modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
                         }
                     }
                     DownloadStatus.DONE -> IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Remover", modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
                     }
                     else -> {}
                 }

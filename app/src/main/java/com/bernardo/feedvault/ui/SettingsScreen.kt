@@ -63,10 +63,10 @@ fun SettingsScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = { Text("Configurações") },
+                    title = { Text("Settings") },
                     navigationIcon = {
                         IconButton(onClick = onClose) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Voltar")
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                         }
                     }
                 )
@@ -79,9 +79,9 @@ fun SettingsScreen(
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
-                // ── Aparência ──────────────────────────────────────────────
-                SectionTitle("Aparência")
-                Text("Fundo", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // ── Appearance ──────────────────────────────────────────────
+                SectionTitle("Appearance")
+                Text("Background", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 SwatchRow(
                     swatches = ThemeController.backgroundPresets,
@@ -89,7 +89,7 @@ fun SettingsScreen(
                     onPick = { ThemeController.setBackground(context, it) }
                 )
                 Spacer(Modifier.height(16.dp))
-                Text("Destaque", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Accent", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(8.dp))
                 SwatchRow(
                     swatches = ThemeController.accentPresets,
@@ -99,18 +99,18 @@ fun SettingsScreen(
 
                 SectionDivider()
 
-                // ── Organização ────────────────────────────────────────────
-                SectionTitle("Organização")
-                SettingButton(Icons.Default.Label, "Gerenciar tags", onManageTags)
+                // ── Organization ────────────────────────────────────────────
+                SectionTitle("Organization")
+                SettingButton(Icons.Default.Label, "Manage tags", onManageTags)
                 Spacer(Modifier.height(8.dp))
-                SettingButton(Icons.Default.Person, "Pessoas / Categorias", onManagePeople)
+                SettingButton(Icons.Default.Person, "People / Categories", onManagePeople)
                 Spacer(Modifier.height(8.dp))
-                SettingButton(Icons.Default.Upload, "Exportar tags", onExportTags)
+                SettingButton(Icons.Default.Upload, "Export tags", onExportTags)
 
-                // ── Cofre ───────────────────────────────────────────────────
+                // ── Vault ───────────────────────────────────────────────────
                 if (state.vaultInitialized) {
                     SectionDivider()
-                    SectionTitle("Cofre")
+                    SectionTitle("Vault")
                     ChangePasswordBlock(viewModel)
                 }
 
@@ -163,7 +163,7 @@ private fun SwatchRow(
                 if (isSelected) {
                     Icon(
                         Icons.Default.Check,
-                        contentDescription = "Selecionado",
+                        contentDescription = "Selected",
                         tint = if (color.luminance() > 0.5f) Color.Black else Color.White,
                         modifier = Modifier.size(18.dp)
                     )
@@ -197,28 +197,28 @@ private fun ChangePasswordBlock(viewModel: GalleryViewModel) {
     var done by remember { mutableStateOf(false) }
 
     Text(
-        "Alterar senha do cofre",
+        "Change vault password",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(bottom = 10.dp)
     )
     OutlinedTextField(
         value = current, onValueChange = { current = it; done = false },
-        label = { Text("Senha atual") },
+        label = { Text("Current password") },
         visualTransformation = PasswordVisualTransformation(),
         singleLine = true, modifier = Modifier.fillMaxWidth()
     )
     Spacer(Modifier.height(8.dp))
     OutlinedTextField(
         value = new, onValueChange = { new = it; done = false },
-        label = { Text("Nova senha") },
+        label = { Text("New password") },
         visualTransformation = PasswordVisualTransformation(),
         singleLine = true, modifier = Modifier.fillMaxWidth()
     )
     Spacer(Modifier.height(8.dp))
     OutlinedTextField(
         value = confirm, onValueChange = { confirm = it; done = false },
-        label = { Text("Confirmar nova senha") },
+        label = { Text("Confirm new password") },
         visualTransformation = PasswordVisualTransformation(),
         singleLine = true, modifier = Modifier.fillMaxWidth()
     )
@@ -226,17 +226,17 @@ private fun ChangePasswordBlock(viewModel: GalleryViewModel) {
     Button(
         onClick = {
             if (new != confirm) {
-                viewModel.setError("As senhas não coincidem")
+                viewModel.setError("Passwords don't match")
             } else {
                 viewModel.changeVaultPassword(current, new) { ok ->
                     if (ok) {
                         current = ""; new = ""; confirm = ""; done = true
-                        viewModel.setError("Senha alterada")
+                        viewModel.setError("Password changed")
                     }
                 }
             }
         },
         enabled = current.isNotBlank() && new.isNotBlank() && confirm.isNotBlank(),
         modifier = Modifier.fillMaxWidth()
-    ) { Text(if (done) "Senha alterada" else "Alterar senha") }
+    ) { Text(if (done) "Password changed" else "Change password") }
 }

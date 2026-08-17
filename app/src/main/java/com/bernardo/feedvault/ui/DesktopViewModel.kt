@@ -68,7 +68,7 @@ class DesktopViewModel(private val context: Context) : ViewModel() {
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     connectionState = DesktopConnectionState.ERROR,
-                    error = "Não foi possível conectar: ${e.message}"
+                    error = "Could not connect: ${e.message}"
                 )
             }
         }
@@ -132,7 +132,7 @@ class DesktopViewModel(private val context: Context) : ViewModel() {
             val files = DesktopRepository.fetchFiles(_uiState.value.baseUrl)
             _uiState.value = _uiState.value.copy(files = files)
         }.onFailure { e ->
-            _uiState.value = _uiState.value.copy(error = "Erro ao listar arquivos: ${e.message}")
+            _uiState.value = _uiState.value.copy(error = "Error listing files: ${e.message}")
         }
         _uiState.value = _uiState.value.copy(isLoadingFiles = false)
     }

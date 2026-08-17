@@ -61,7 +61,7 @@ fun DesktopScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     CircularProgressIndicator()
-                    Text("Conectando...", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Connecting...", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             DesktopConnectionState.CONNECTED -> DesktopFileListScreen(
@@ -121,7 +121,7 @@ private fun DesktopConnectScreen(
             ) {
                 Text("Desktop Companion", style = MaterialTheme.typography.headlineSmall)
                 Text(
-                    "Transfira arquivos do seu computador diretamente para a galeria",
+                    "Transfer files from your computer directly to the gallery",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -134,7 +134,7 @@ private fun DesktopConnectScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        "Endereço do servidor",
+                        "Server address",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -159,14 +159,14 @@ private fun DesktopConnectScreen(
                         modifier = Modifier.fillMaxWidth(),
                         enabled = uiState.address.isNotBlank()
                     ) {
-                        Text("Conectar")
+                        Text("Connect")
                     }
                     OutlinedButton(
                         onClick = {
                             scanLauncher.launch(
                                 ScanOptions().apply {
                                     setCaptureActivity(com.bernardo.feedvault.PortraitCaptureActivity::class.java)
-                                    setPrompt("Aponte para o QR code exibido no servidor")
+                                    setPrompt("Point at the QR code shown on the server")
                                     setBeepEnabled(true)
                                     setOrientationLocked(false)
                                     setBarcodeImageEnabled(false)
@@ -181,7 +181,7 @@ private fun DesktopConnectScreen(
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Escanear QR Code")
+                        Text("Scan QR Code")
                     }
                 }
             }
@@ -214,7 +214,7 @@ private fun DesktopConnectScreen(
             }
 
             Text(
-                "Dê um duplo clique em run.command na pasta desktop/ para iniciar o servidor",
+                "Double-click run.command in the desktop/ folder to start the server",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -283,7 +283,7 @@ private fun DesktopFileListScreen(
                 } else {
                     Icon(
                         Icons.Default.Refresh,
-                        contentDescription = "Atualizar",
+                        contentDescription = "Refresh",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer
                     )
@@ -295,7 +295,7 @@ private fun DesktopFileListScreen(
             ) {
                 Icon(
                     Icons.Default.Close,
-                    contentDescription = "Desconectar",
+                    contentDescription = "Disconnect",
                     modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
@@ -313,15 +313,15 @@ private fun DesktopFileListScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 IconButton(onClick = onClearSelection, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = "Cancelar seleção", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Default.Close, contentDescription = "Cancel selection", modifier = Modifier.size(18.dp))
                 }
                 Text(
-                    "${uiState.selectedIds.size} selecionado${if (uiState.selectedIds.size != 1) "s" else ""}",
+                    "${uiState.selectedIds.size} selected",
                     style = MaterialTheme.typography.labelMedium,
                     modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = onSelectAll, contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text("Todos", style = MaterialTheme.typography.labelSmall)
+                    Text("All", style = MaterialTheme.typography.labelSmall)
                 }
                 Button(
                     onClick = onSaveSelected,
@@ -330,7 +330,7 @@ private fun DesktopFileListScreen(
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Baixar", style = MaterialTheme.typography.labelSmall)
+                    Text("Download", style = MaterialTheme.typography.labelSmall)
                 }
             }
         } else {
@@ -344,7 +344,7 @@ private fun DesktopFileListScreen(
                 val images = uiState.files.count { it.isImage }
                 val videos = uiState.files.count { it.isVideo }
                 Text(
-                    "${uiState.files.size} arq · $images img · $videos vid",
+                    "${uiState.files.size} files · $images img · $videos vid",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
@@ -363,9 +363,9 @@ private fun DesktopFileListScreen(
                     ) {
                         Text(
                             text = when (filter) {
-                                DesktopFileFilter.ALL -> "Todos"
-                                DesktopFileFilter.IMAGES -> "Imagens"
-                                DesktopFileFilter.VIDEOS -> "Vídeos"
+                                DesktopFileFilter.ALL -> "All"
+                                DesktopFileFilter.IMAGES -> "Images"
+                                DesktopFileFilter.VIDEOS -> "Videos"
                             },
                             style = MaterialTheme.typography.labelSmall,
                             color = if (active) MaterialTheme.colorScheme.onPrimaryContainer
@@ -394,7 +394,7 @@ private fun DesktopFileListScreen(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    "${uiState.filteredFiles.size} arquivos · ${formatFileSize(totalSize)}",
+                    "${uiState.filteredFiles.size} files · ${formatFileSize(totalSize)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
@@ -404,7 +404,7 @@ private fun DesktopFileListScreen(
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                     modifier = Modifier.height(32.dp)
                 ) {
-                    Text("Baixar todos", style = MaterialTheme.typography.labelSmall)
+                    Text("Download all", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
@@ -415,8 +415,8 @@ private fun DesktopFileListScreen(
         if (uiState.filteredFiles.isEmpty() && !uiState.isLoadingFiles) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    if (uiState.files.isEmpty()) "Nenhum arquivo compartilhado.\nAdicione pastas no servidor."
-                    else "Nenhum arquivo nesta categoria.",
+                    if (uiState.files.isEmpty()) "No files shared.\nAdd folders on the server."
+                    else "No files in this category.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -572,7 +572,7 @@ private fun DesktopFileCard(
                     CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                 } else {
                     IconButton(onClick = onSave, modifier = Modifier.size(40.dp)) {
-                        Icon(Icons.Default.Download, contentDescription = "Baixar")
+                        Icon(Icons.Default.Download, contentDescription = "Download")
                     }
                 }
             }

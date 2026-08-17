@@ -213,7 +213,7 @@ class MainActivity : FragmentActivity() {
                     android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
             } catch (e: SecurityException) {
-                vm.setError("Sem permissão para acessar esta pasta. Tente outra localização.")
+                vm.setError("No permission to access this folder. Try another location.")
                 return@registerForActivityResult
             }
 
@@ -351,7 +351,7 @@ fun GalleryScreen(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         if (result.values.any { it } || hasMediaReadPermission()) viewModel.addDownloadsMedia()
-        else viewModel.setError("Permissão de mídia negada — não dá pra ler Downloads")
+        else viewModel.setError("Media permission denied — can't read Downloads")
     }
     val onAddDownloads: () -> Unit = {
         if (hasMediaReadPermission()) viewModel.addDownloadsMedia()
@@ -588,7 +588,7 @@ fun GalleryScreen(
                 // Section navigation
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Default.Photo, contentDescription = null) },
-                    label = { Text("Galeria") },
+                    label = { Text("Gallery") },
                     badge = { Text("${uiState.filteredMedia.size}", style = MaterialTheme.typography.labelSmall) },
                     selected = uiState.currentSection == AppSection.GALLERY,
                     onClick = {
@@ -599,7 +599,7 @@ fun GalleryScreen(
                 )
                 NavigationDrawerItem(
                     icon = { Icon(Icons.Default.VideoLibrary, contentDescription = null) },
-                    label = { Text("Clipes") },
+                    label = { Text("Clips") },
                     badge = { Text("${uiState.filteredClips.size}", style = MaterialTheme.typography.labelSmall) },
                     selected = uiState.currentSection == AppSection.CLIPS,
                     onClick = {
@@ -630,7 +630,7 @@ fun GalleryScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp, vertical = 4.dp),
-                    placeholder = { Text("Buscar pessoa...") },
+                    placeholder = { Text("Search person...") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     trailingIcon = {
                         if (uiState.drawerPeopleSearch.isNotEmpty()) {
@@ -648,7 +648,7 @@ fun GalleryScreen(
                     item {
                         NavigationDrawerItem(
                             icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                            label = { Text("Todos") },
+                            label = { Text("All") },
                             selected = uiState.selectedPeople.isEmpty() && !uiState.filterUntaggedPeople,
                             onClick = {
                                 viewModel.clearFilters()
@@ -661,7 +661,7 @@ fun GalleryScreen(
                     item {
                         NavigationDrawerItem(
                             icon = { Icon(Icons.Default.Person, contentDescription = null) },
-                            label = { Text("Sem Pessoas") },
+                            label = { Text("No People") },
                             selected = uiState.filterUntaggedPeople,
                             onClick = {
                                 viewModel.selectNoPeopleFilter()
@@ -680,7 +680,7 @@ fun GalleryScreen(
                     if (uiState.allPeople.isNotEmpty()) {
                         item {
                             Text(
-                                text = "Pessoas / Categorias",
+                                text = "People / Categories",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -789,30 +789,30 @@ fun GalleryScreen(
                     }) {
                         Icon(
                             if (uiState.vaultMode) Icons.Default.LockOpen else Icons.Default.Lock,
-                            contentDescription = if (uiState.vaultMode) "Sair do Cofre" else "Cofre",
+                            contentDescription = if (uiState.vaultMode) "Exit Vault" else "Vault",
                             tint = if (uiState.vaultMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                         )
                     }
                     if (uiState.hasSavedFolder) {
                         IconButton(onClick = { viewModel.syncMedia(); scope.launch { drawerState.close() } }) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Sincronizar")
+                            Icon(Icons.Default.Refresh, contentDescription = "Sync")
                         }
                     }
                     Box {
                         IconButton(onClick = { addMenuExpanded = true }) {
-                            Icon(Icons.Default.Add, contentDescription = "Adicionar mídia")
+                            Icon(Icons.Default.Add, contentDescription = "Add media")
                         }
                         DropdownMenu(
                             expanded = addMenuExpanded,
                             onDismissRequest = { addMenuExpanded = false }
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Pasta") },
+                                text = { Text("Folder") },
                                 leadingIcon = { Icon(Icons.Default.CreateNewFolder, contentDescription = null) },
                                 onClick = { addMenuExpanded = false; scope.launch { drawerState.close() }; onSelectFolder() }
                             )
                             DropdownMenuItem(
-                                text = { Text("Arquivos") },
+                                text = { Text("Files") },
                                 leadingIcon = { Icon(Icons.Default.NoteAdd, contentDescription = null) },
                                 onClick = { addMenuExpanded = false; scope.launch { drawerState.close() }; onSelectFiles() }
                             )
@@ -826,7 +826,7 @@ fun GalleryScreen(
                     // Settings sits last on the right, separated from the rest.
                     Spacer(modifier = Modifier.weight(1f))
                     IconButton(onClick = { showSettings = true; scope.launch { drawerState.close() } }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Configurações")
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }
                 }
 
@@ -841,12 +841,12 @@ fun GalleryScreen(
                     TopAppBar(
                         title = {
                             val sectionName = when (uiState.currentSection) {
-                                AppSection.CLIPS -> "Clipes"
+                                AppSection.CLIPS -> "Clips"
                                 AppSection.DESKTOP -> "Desktop"
-                                else -> "Galeria"
+                                else -> "Gallery"
                             }
                             val personLabel = if (uiState.currentSection == AppSection.DESKTOP) null else when {
-                                uiState.filterUntaggedPeople -> "Sem Pessoas"
+                                uiState.filterUntaggedPeople -> "No People"
                                 uiState.selectedPeople.isNotEmpty() -> uiState.selectedPeople.joinToString(", ")
                                 else -> null
                             }
@@ -858,7 +858,7 @@ fun GalleryScreen(
                                 if (uiState.vaultMode) {
                                     Icon(
                                         Icons.Default.Lock,
-                                        contentDescription = "Cofre",
+                                        contentDescription = "Vault",
                                         modifier = Modifier.size(18.dp),
                                         tint = MaterialTheme.colorScheme.primary
                                     )
@@ -883,7 +883,7 @@ fun GalleryScreen(
                                     if (uiState.vaultMode) {
                                         if (!uiState.vaultBiometricEnabled) {
                                             IconButton(onClick = { enableVaultBiometric(context, viewModel) }) {
-                                                Icon(Icons.Default.Fingerprint, contentDescription = "Ativar biometria", modifier = Modifier.size(18.dp))
+                                                Icon(Icons.Default.Fingerprint, contentDescription = "Enable biometrics", modifier = Modifier.size(18.dp))
                                             }
                                         }
                                     }
@@ -891,7 +891,7 @@ fun GalleryScreen(
                                     IconButton(onClick = { viewModel.toggleGridView() }) {
                                         Icon(
                                             imageVector = if (uiState.isGridView) Icons.Default.ViewStream else Icons.Default.GridView,
-                                            contentDescription = "Alternar visualização",
+                                            contentDescription = "Toggle view",
                                             tint = if (uiState.isGridView) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -899,7 +899,7 @@ fun GalleryScreen(
                                     IconButton(onClick = { viewModel.toggleShuffle() }) {
                                         Icon(
                                             imageVector = Icons.Default.Shuffle,
-                                            contentDescription = "Aleatório",
+                                            contentDescription = "Shuffle",
                                             tint = if (uiState.isShuffled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.size(18.dp)
                                         )
@@ -963,7 +963,7 @@ fun GalleryScreen(
                                     Box(Modifier.weight(1f)) {
                                         if (query.isEmpty()) {
                                             Text(
-                                                text = if (isClipsBar) "Buscar clipes, tags, pessoas..." else "Buscar, tags, pessoas...",
+                                                text = if (isClipsBar) "Search clips, tags, people..." else "Search, tags, people...",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -986,8 +986,8 @@ fun GalleryScreen(
                         )
                         if (!isClipsBar) {
                             var typeMenuExpanded by remember { mutableStateOf(false) }
-                            val typeOptions = listOf(null to "Todos", "video" to "Vídeos", "image" to "Fotos", "gif" to "GIFs")
-                            val currentLabel = typeOptions.firstOrNull { it.first == uiState.mediaTypeFilter }?.second ?: "Todos"
+                            val typeOptions = listOf(null to "All", "video" to "Videos", "image" to "Photos", "gif" to "GIFs")
+                            val currentLabel = typeOptions.firstOrNull { it.first == uiState.mediaTypeFilter }?.second ?: "All"
                             val isFiltered = uiState.mediaTypeFilter != null
                             Box {
                                 Box(
@@ -1029,7 +1029,7 @@ fun GalleryScreen(
                             ) {
                                 Icon(
                                     Icons.Default.FilterList,
-                                    contentDescription = "Filtros e ordenação",
+                                    contentDescription = "Filters and sorting",
                                     modifier = Modifier.size(18.dp),
                                     tint = if (!sortIsDefault) MaterialTheme.colorScheme.primary
                                            else MaterialTheme.colorScheme.onSurfaceVariant
@@ -1041,7 +1041,7 @@ fun GalleryScreen(
                             ) {
                                 if (!isClipsBar) {
                                     DropdownMenuItem(
-                                        text = { Text("ORDENAR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                        text = { Text("SORT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                         onClick = {}, enabled = false
                                     )
                                     MediaSortOrder.entries.forEach { order ->
@@ -1054,7 +1054,7 @@ fun GalleryScreen(
                                     }
                                 } else {
                                     DropdownMenuItem(
-                                        text = { Text("ORDENAR CLIPES", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+                                        text = { Text("SORT CLIPS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) },
                                         onClick = {}, enabled = false
                                     )
                                     ClipSortOrder.entries.forEach { order ->
@@ -1112,7 +1112,7 @@ fun GalleryScreen(
                             if (matchingPeople.isNotEmpty()) {
                                 if (matchingTags.isNotEmpty()) Divider()
                                 Text(
-                                    "PESSOAS",
+                                    "PEOPLE",
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -1164,7 +1164,7 @@ fun GalleryScreen(
                                     Text(tag, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
                                     Icon(
                                         Icons.Default.Close,
-                                        contentDescription = "Remover",
+                                        contentDescription = "Remove",
                                         modifier = Modifier
                                             .size(14.dp)
                                             .clickable {
@@ -1271,7 +1271,7 @@ fun GalleryScreen(
                         ) {
                             EmptyStateView()
                             Button(onClick = onSelectFolder) {
-                                Text("Selecionar Pasta com Mídia")
+                                Text("Select Folder with Media")
                             }
                         }
                     }
@@ -1343,7 +1343,7 @@ fun GalleryScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 IconButton(onClick = { viewModel.clearSelection() }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Cancelar seleção")
+                                    Icon(Icons.Default.Close, contentDescription = "Cancel selection")
                                 }
                                 Text(
                                     text = "${uiState.selectedIds.size}",
@@ -1360,11 +1360,11 @@ fun GalleryScreen(
                                     }
                                     DropdownMenu(expanded = showTagMenu, onDismissRequest = { showTagMenu = false }) {
                                         DropdownMenuItem(
-                                            text = { Text("Adicionar tags") },
+                                            text = { Text("Add tags") },
                                             onClick = { showTagMenu = false; showBatchTagEditor = true }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Remover tags") },
+                                            text = { Text("Remove tags") },
                                             onClick = { showTagMenu = false; showBatchRemoveTagEditor = true }
                                         )
                                     }
@@ -1375,15 +1375,15 @@ fun GalleryScreen(
                                         enabled = uiState.selectedIds.isNotEmpty(),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                     ) {
-                                        Icon(Icons.Default.Person, contentDescription = "Pessoas", modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Person, contentDescription = "People", modifier = Modifier.size(18.dp))
                                     }
                                     DropdownMenu(expanded = showPeopleMenu, onDismissRequest = { showPeopleMenu = false }) {
                                         DropdownMenuItem(
-                                            text = { Text("Adicionar pessoas") },
+                                            text = { Text("Add people") },
                                             onClick = { showPeopleMenu = false; showBatchPeopleEditor = true }
                                         )
                                         DropdownMenuItem(
-                                            text = { Text("Remover pessoas") },
+                                            text = { Text("Remove people") },
                                             onClick = { showPeopleMenu = false; showBatchRemovePeopleEditor = true }
                                         )
                                     }
@@ -1394,7 +1394,7 @@ fun GalleryScreen(
                                         enabled = uiState.selectedIds.isNotEmpty(),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                     ) {
-                                        Icon(Icons.Default.Restore, contentDescription = "Restaurar à galeria", modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Restore, contentDescription = "Restore to gallery", modifier = Modifier.size(18.dp))
                                     }
                                 } else {
                                     Button(
@@ -1402,7 +1402,7 @@ fun GalleryScreen(
                                         enabled = uiState.selectedIds.isNotEmpty(),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                     ) {
-                                        Icon(Icons.Default.Lock, contentDescription = "Mover para o cofre", modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Lock, contentDescription = "Move to vault", modifier = Modifier.size(18.dp))
                                     }
                                 }
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1415,7 +1415,7 @@ fun GalleryScreen(
                                     ),
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
                                 ) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Deletar", modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
@@ -1426,11 +1426,11 @@ fun GalleryScreen(
 
         // Desktop download folder dialog
         if (BuildConfig.ENABLE_DESKTOP && showUseDesktopFolderDialog && pendingDesktopFile != null) {
-            val folderName = desktopViewModel!!.getDownloadFolderName() ?: "pasta selecionada"
+            val folderName = desktopViewModel!!.getDownloadFolderName() ?: "selected folder"
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showUseDesktopFolderDialog = false; pendingDesktopFile = null },
-                title = { Text("Salvar arquivo") },
-                text = { Text("Usar \"$folderName\"?") },
+                title = { Text("Save file") },
+                text = { Text("Use \"$folderName\"?") },
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showUseDesktopFolderDialog = false
@@ -1441,25 +1441,25 @@ fun GalleryScreen(
                         downloadQueueViewModel!!.enqueue(
                             DownloadItem(name = file.name, source = "Desktop", url = url, fileName = file.name, folderUri = folder)
                         )
-                    }) { Text("Usar esta pasta") }
+                    }) { Text("Use this folder") }
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showUseDesktopFolderDialog = false
                         desktopFolderLauncher!!.launch(null)
-                    }) { Text("Escolher outra pasta") }
+                    }) { Text("Choose another folder") }
                 }
             )
         }
 
         // Desktop bulk download folder dialog
         if (BuildConfig.ENABLE_DESKTOP && showUseDesktopFolderBulkDialog && pendingDesktopFiles.isNotEmpty()) {
-            val folderName = desktopViewModel!!.getDownloadFolderName() ?: "pasta selecionada"
+            val folderName = desktopViewModel!!.getDownloadFolderName() ?: "selected folder"
             val count = pendingDesktopFiles.size
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showUseDesktopFolderBulkDialog = false; pendingDesktopFiles = emptyList() },
-                title = { Text("Baixar todos") },
-                text = { Text("Baixar $count arquivo${if (count != 1) "s" else ""} para \"$folderName\"?") },
+                title = { Text("Download all") },
+                text = { Text("Download $count file${if (count != 1) "s" else ""} to \"$folderName\"?") },
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showUseDesktopFolderBulkDialog = false
@@ -1472,13 +1472,13 @@ fun GalleryScreen(
                                 DownloadItem(name = f.name, source = "Desktop", url = url, fileName = f.name, folderUri = folder)
                             )
                         }
-                    }) { Text("Baixar tudo") }
+                    }) { Text("Download all") }
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showUseDesktopFolderBulkDialog = false
                         desktopFolderLauncher!!.launch(null)
-                    }) { Text("Escolher outra pasta") }
+                    }) { Text("Choose another folder") }
                 }
             )
         }
@@ -1581,17 +1581,17 @@ fun GalleryScreen(
             val count = uiState.selectedIds.size
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showBatchDeleteConfirm = false },
-                title = { Text("Deletar $count arquivo${if (count != 1) "s" else ""}?") },
-                text = { Text("Os arquivos serão removidos permanentemente do dispositivo.") },
+                title = { Text("Delete $count file${if (count != 1) "s" else ""}?") },
+                text = { Text("The files will be permanently removed from the device.") },
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showBatchDeleteConfirm = false
                         viewModel.deleteSelectedMediaItems()
-                    }) { Text("Deletar", color = MaterialTheme.colorScheme.error) }
+                    }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { showBatchDeleteConfirm = false }) {
-                        Text("Cancelar")
+                        Text("Cancel")
                     }
                 }
             )
@@ -1601,17 +1601,17 @@ fun GalleryScreen(
             val count = uiState.selectedIds.size
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showBatchRestoreConfirm = false },
-                title = { Text("Restaurar $count arquivo${if (count != 1) "s" else ""}?") },
-                text = { Text("Os arquivos serão devolvidos à pasta original na galeria e removidos do cofre.") },
+                title = { Text("Restore $count file${if (count != 1) "s" else ""}?") },
+                text = { Text("The files will be returned to their original folder in the gallery and removed from the vault.") },
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showBatchRestoreConfirm = false
                         viewModel.restoreSelectedFromVault()
-                    }) { Text("Restaurar") }
+                    }) { Text("Restore") }
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { showBatchRestoreConfirm = false }) {
-                        Text("Cancelar")
+                        Text("Cancel")
                     }
                 }
             )
@@ -1621,17 +1621,17 @@ fun GalleryScreen(
             val count = uiState.selectedIds.size
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showBatchLockConfirm = false },
-                title = { Text("Mover $count arquivo${if (count != 1) "s" else ""} para o cofre?") },
-                text = { Text("Os arquivos saem da galeria e ficam guardados no app, protegidos por senha. Use Restaurar para devolvê-los ao mesmo lugar.") },
+                title = { Text("Move $count file${if (count != 1) "s" else ""} to the vault?") },
+                text = { Text("The files leave the gallery and are kept in the app, protected by a password. Use Restore to return them to the same place.") },
                 confirmButton = {
                     androidx.compose.material3.TextButton(onClick = {
                         showBatchLockConfirm = false
                         viewModel.lockSelectedToVault()
-                    }) { Text("Mover ao cofre") }
+                    }) { Text("Move to vault") }
                 },
                 dismissButton = {
                     androidx.compose.material3.TextButton(onClick = { showBatchLockConfirm = false }) {
-                        Text("Cancelar")
+                        Text("Cancel")
                     }
                 }
             )

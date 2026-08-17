@@ -12,7 +12,7 @@ data class MediaItem(
     val uri: String,
     val fileName: String,
     val uriHash: Int,
-    val mediaType: String, // "image" ou "video"
+    val mediaType: String, // "image" or "video"
     val mimeType: String = "",
     val dateAdded: Long = System.currentTimeMillis(),
     val tags: List<String> = emptyList(),
@@ -23,7 +23,7 @@ data class MediaItem(
     val lastModified: Long = System.currentTimeMillis(),
     val thumbnailFrameMs: Long = -1L,
     /**
-     * True for media stored encrypted in app-private storage (the "Cofre").
+     * True for media stored encrypted in app-private storage (the "Vault").
      * Such items have [uri] of the form "vault://<storedName>"; the real bytes
      * are resolved on demand via VaultSession. Non-encrypted items reference
      * the system gallery (content:// / document URIs) as before.

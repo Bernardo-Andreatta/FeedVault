@@ -24,20 +24,20 @@ import javax.crypto.Cipher
 enum class AppSection { GALLERY, CLIPS, DESKTOP }
 
 enum class MediaSortOrder(val label: String) {
-    DATE_MODIFIED_DESC("Modificado (recente)"),
-    DATE_MODIFIED_ASC("Modificado (antigo)"),
-    DATE_ADDED_DESC("Adicionado (recente)"),
-    DATE_ADDED_ASC("Adicionado (antigo)"),
-    NAME_ASC("Nome A→Z"),
-    NAME_DESC("Nome Z→A"),
-    FAVORITES_FIRST("Favoritos primeiro")
+    DATE_MODIFIED_DESC("Modified (newest)"),
+    DATE_MODIFIED_ASC("Modified (oldest)"),
+    DATE_ADDED_DESC("Added (newest)"),
+    DATE_ADDED_ASC("Added (oldest)"),
+    NAME_ASC("Name A→Z"),
+    NAME_DESC("Name Z→A"),
+    FAVORITES_FIRST("Favorites first")
 }
 
 enum class ClipSortOrder(val label: String) {
-    DATE_CREATED_DESC("Criado (recente)"),
-    DATE_CREATED_ASC("Criado (antigo)"),
-    DURATION_DESC("Duração (maior)"),
-    DURATION_ASC("Duração (menor)"),
+    DATE_CREATED_DESC("Created (newest)"),
+    DATE_CREATED_ASC("Created (oldest)"),
+    DURATION_DESC("Duration (longest)"),
+    DURATION_ASC("Duration (shortest)"),
     LABEL_ASC("Label A→Z")
 }
 
@@ -78,7 +78,7 @@ data class AppUiState(
     val isSelectionMode: Boolean = false,
     val mediaSortOrder: MediaSortOrder = MediaSortOrder.DATE_MODIFIED_DESC,
     val clipSortOrder: ClipSortOrder = ClipSortOrder.DATE_CREATED_DESC,
-    // Vault ("Cofre") — encrypted mirror of the gallery
+    // Vault — encrypted mirror of the gallery
     val vaultMode: Boolean = false,
     val vaultInitialized: Boolean = false,
     val vaultUnlocked: Boolean = false,
@@ -160,10 +160,10 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                 prefs.edit().putString("folder_uri", folderUri.toString()).apply()
                 _uiState.value = _uiState.value.copy(folderSelected = true, hasSavedFolder = true)
             } catch (e: SecurityException) {
-                _uiState.value = _uiState.value.copy(errorMessage = "Sem permissão para acessar esta pasta.")
+                _uiState.value = _uiState.value.copy(errorMessage = "No permission to access this folder.")
             } catch (e: Exception) {
                 e.printStackTrace()
-                _uiState.value = _uiState.value.copy(errorMessage = "Erro ao acessar a pasta.")
+                _uiState.value = _uiState.value.copy(errorMessage = "Error accessing the folder.")
             } finally {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }
@@ -192,10 +192,10 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             _uiState.value = _uiState.value.copy(isLoading = true)
             try {
                 val added = repository.addDownloadsMedia()
-                if (added == 0) setError("Nenhuma mídia nova encontrada em Downloads")
+                if (added == 0) setError("No new media found in Downloads")
             } catch (e: Exception) {
                 e.printStackTrace()
-                setError("Erro ao ler Downloads")
+                setError("Error reading Downloads")
             } finally {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }
@@ -291,7 +291,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     private fun updateFilteredMedia(scrollFeed: Boolean = false, scrollClips: Boolean = false) {
         val vaultMode = _uiState.value.vaultMode
         val vaultReady = !vaultMode || _uiState.value.vaultUnlocked
-        // Each mode sees only its own media: encrypted in the Cofre, system media otherwise.
+        // Each mode sees only its own media: encrypted in the Vault, system media otherwise.
         val allMedia = if (vaultReady) _uiState.value.allMedia.filter { it.encrypted == vaultMode } else emptyList()
         val selectedPeople = _uiState.value.selectedPeople
         val selectedTags = _uiState.value.selectedTags
@@ -387,7 +387,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             .groupBy { it }.map { (tag, list) -> tag to list.size }
             .sortedByDescending { it.second }
 
-        // Tags + people are scoped to the active mode so the Cofre never leaks names into the normal gallery.
+        // Tags + people are scoped to the active mode so the Vault never leaks names into the normal gallery.
         val modeTags = allMedia.flatMap { it.tags }.filter { it.isNotBlank() }.distinct()
         val flatPeople = allMedia.flatMap { it.people }.filter { it.isNotBlank() }.distinct()
         val savedOrder = prefs.getString("people_order", null)
@@ -413,7 +413,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                 repository.scanFromMediaStore()
                 _uiState.value = _uiState.value.copy(folderSelected = true)
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(errorMessage = "Erro ao escanear dispositivo.")
+                _uiState.value = _uiState.value.copy(errorMessage = "Error scanning device.")
             } finally {
                 _uiState.value = _uiState.value.copy(isLoading = false)
             }
@@ -462,9 +462,9 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                     )
                 }
                 prefs.edit().putString("export_uri", uri.toString()).apply()
-                _uiState.value = _uiState.value.copy(errorMessage = "Tags exportadas com sucesso!")
+                _uiState.value = _uiState.value.copy(errorMessage = "Tags exported successfully!")
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(errorMessage = "Erro ao exportar tags.")
+                _uiState.value = _uiState.value.copy(errorMessage = "Error exporting tags.")
             }
         }
     }
@@ -539,7 +539,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             } catch (e: DeletePermissionRequiredException) {
                 _uiState.value = _uiState.value.copy(pendingDeleteRequest = PendingDeleteRequest(item, e.intentSender))
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(errorMessage = "Não foi possível apagar \"${item.fileName}\".")
+                _uiState.value = _uiState.value.copy(errorMessage = "Could not delete \"${item.fileName}\".")
             }
         }
     }
@@ -671,7 +671,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                 selectedIds = remaining,
                 isSelectionMode = remaining.isNotEmpty(),
                 pendingBatchDeleteRequest = batchPending,
-                errorMessage = if (failures > 0) "Falha ao apagar $failures ${if (failures == 1) "item" else "itens"}." else _uiState.value.errorMessage
+                errorMessage = if (failures > 0) "Failed to delete $failures ${if (failures == 1) "item" else "items"}." else _uiState.value.errorMessage
             )
         }
     }
@@ -753,7 +753,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
             _uiState.value.allMedia.firstOrNull { it.id == id }?.people ?: emptyList()
         }.distinct()
 
-    // ── Vault ("Cofre") ─────────────────────────────────────────────────────────
+    // ── Vault ─────────────────────────────────────────────────────────
 
     fun setVaultMode(enabled: Boolean) {
         _uiState.value = _uiState.value.copy(
@@ -770,7 +770,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     }
 
     fun vaultSetupPassword(password: String) {
-        if (password.length < 4) { setError("Use pelo menos 4 caracteres"); return }
+        if (password.length < 4) { setError("Use at least 4 characters"); return }
         viewModelScope.launch {
             withContext(Dispatchers.IO) { VaultManager.setupPassword(context, password.toCharArray()) }
             onVaultUnlocked()
@@ -780,7 +780,7 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     fun vaultUnlockPassword(password: String) {
         viewModelScope.launch {
             val ok = withContext(Dispatchers.IO) { VaultManager.unlockWithPassword(context, password.toCharArray()) }
-            if (ok) onVaultUnlocked() else setError("Senha incorreta")
+            if (ok) onVaultUnlocked() else setError("Incorrect password")
         }
     }
 
@@ -826,14 +826,14 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     private fun lockToVault(items: List<MediaItem>, clearSelectionAfter: Boolean = false) {
         if (items.isEmpty()) return
         if (!VaultManager.isInitialized(context)) {
-            setError("Configure o cofre primeiro: abra o Cofre e defina uma senha")
+            setError("Set up the vault first: open Vault and set a password")
             return
         }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Protegendo mídia...")
+            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Securing media...")
             var failed = 0
             items.forEachIndexed { i, item ->
-                _uiState.value = _uiState.value.copy(vaultBusyMessage = "Protegendo ${i + 1}/${items.size}...")
+                _uiState.value = _uiState.value.copy(vaultBusyMessage = "Securing ${i + 1}/${items.size}...")
                 if (!repository.lockToVault(item)) failed++
             }
             _uiState.value = _uiState.value.copy(
@@ -841,23 +841,23 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
                 selectedIds = if (clearSelectionAfter) emptySet() else _uiState.value.selectedIds,
                 isSelectionMode = if (clearSelectionAfter) false else _uiState.value.isSelectionMode
             )
-            if (failed > 0) setError("$failed item(s) não puderam ser protegidos")
+            if (failed > 0) setError("$failed item(s) could not be secured")
         }
     }
 
     fun restoreFromVault(item: MediaItem) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Restaurando...")
+            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Restoring...")
             val ok = repository.restoreFromVault(item)
             _uiState.value = _uiState.value.copy(vaultBusy = false, vaultBusyMessage = null)
-            if (!ok) setError("Falha ao restaurar")
+            if (!ok) setError("Failed to restore")
         }
     }
 
     fun restoreSelectedFromVault() {
         viewModelScope.launch {
             val items = _uiState.value.allMedia.filter { it.id in _uiState.value.selectedIds && it.encrypted }
-            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Restaurando...")
+            _uiState.value = _uiState.value.copy(vaultBusy = true, vaultBusyMessage = "Restoring...")
             items.forEach { repository.restoreFromVault(it) }
             _uiState.value = _uiState.value.copy(
                 vaultBusy = false, vaultBusyMessage = null,
@@ -867,12 +867,12 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
     }
 
     fun changeVaultPassword(current: String, new: String, onResult: (Boolean) -> Unit) {
-        if (new.length < 4) { setError("Use pelo menos 4 caracteres"); onResult(false); return }
+        if (new.length < 4) { setError("Use at least 4 characters"); onResult(false); return }
         viewModelScope.launch {
             val ok = withContext(Dispatchers.IO) {
                 VaultManager.changePassword(context, current.toCharArray(), new.toCharArray())
             }
-            if (!ok) setError("Senha atual incorreta")
+            if (!ok) setError("Incorrect current password")
             onResult(ok)
         }
     }
@@ -884,13 +884,13 @@ class GalleryViewModel(private val context: Context) : ViewModel() {
 
     fun vaultCompleteEnableBiometric(cipher: Cipher) {
         runCatching { VaultManager.enableBiometric(context, cipher) }
-            .onFailure { setError("Não foi possível ativar biometria") }
+            .onFailure { setError("Could not enable biometrics") }
         _uiState.value = _uiState.value.copy(vaultBiometricEnabled = VaultManager.isBiometricEnabled(context))
     }
 
     fun vaultCompleteBiometricUnlock(cipher: Cipher) {
         if (VaultManager.unlockWithBiometric(context, cipher)) onVaultUnlocked()
-        else setError("Falha na biometria")
+        else setError("Biometric authentication failed")
     }
 
 }
